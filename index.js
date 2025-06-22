@@ -73,7 +73,7 @@ app.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
+      { id: user.id, email: user.email, fullName: user.fullName, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
@@ -85,6 +85,7 @@ app.post('/login', async (req, res) => {
         id: user.id,
         email: user.email,
         username: user.username,
+        fullName: user.fullName,
         role: user.role,
       },
     });
