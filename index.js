@@ -144,6 +144,37 @@ app.post('/signup', async (req, res) => {
   }
 });
 
+app.post('/square/oauth-callback', async (req, res) => {
+  const { code } = req.body;
+
+  const body = {
+    client_id: process.env.SQUARE_APP_ID,
+    client_secret: process.env.SQUARE_CLIENT_SECRET,
+    code,
+    grant_type: 'authorization_code',
+    redirect_uri: 'http://localhost:3000/square-callback',
+  };
+
+  try {
+    const response = await fetch('https://connect.squareupsandbox.com/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      res.json(data);
+    } else {
+      console.error('OAuth error:', data);
+      res.status(400).json({ error: 'OAuth failed', details: data });
+    }
+  } catch (error) {
+    console.error('OAuth exception:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
