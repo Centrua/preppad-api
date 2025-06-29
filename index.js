@@ -10,6 +10,16 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+const cron = require('node-cron');
+const { refreshSquareTokenIfExpiringSoon } = require('./crons/refreshSquareToken');
+
+cron.schedule('* * * * *', () => {
+  console.log('Running Square token refresh job...');
+  refreshSquareTokenIfExpiringSoon();
+}, {
+  timezone: 'UTC',
+});
+
 // Get all businesses
 app.get('/businesses', async (req, res) => {
   try {
@@ -73,7 +83,7 @@ app.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: user.id, email: user.email, fullName: user.fullName, role: user.role },
+      { id: user.id, email: user.email, fullName: user.fullName, role: user.role, businessId: user.businessId },
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
@@ -145,7 +155,7 @@ app.post('/signup', async (req, res) => {
 });
 
 app.post('/square/oauth-callback', async (req, res) => {
-  const { code } = req.body;
+  const { code, businessId } = req.body;
 
   const body = {
     client_id: process.env.SQUARE_APP_ID,
@@ -165,6 +175,17 @@ app.post('/square/oauth-callback', async (req, res) => {
     const data = await response.json();
 
     if (response.ok) {
+      if (businessId) {
+        const business = await Business.findByPk(businessId);
+        if (business) {
+          business.squareAccessToken = data.access_token;
+          business.squareRefreshToken = data.refresh_token;
+          business.squareTokenExpiresAt = new Date(data.expires_at);
+          business.squareMerchantId = data.merchant_id;
+          await business.save();
+        }
+      }
+
       res.json(data);
     } else {
       console.error('OAuth error:', data);
