@@ -20,8 +20,26 @@ cron.schedule('* * * * *', () => {
   timezone: 'UTC',
 });
 
+function authenticateJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized: No token provided' });
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+    }
+    req.user = user; // user object contains id, email, businessId, etc.
+    next();
+  });
+}
+
 // Get all businesses
-app.get('/businesses', async (req, res) => {
+app.get('/businesses', authenticateJWT, async (req, res) => {
   try {
     const businesses = await Business.findAll();
     res.json(businesses);
@@ -31,7 +49,7 @@ app.get('/businesses', async (req, res) => {
 });
 
 // Get business by ID with users
-app.get('/businesses/:id', async (req, res) => {
+app.get('/businesses/:id', authenticateJWT, async (req, res) => {
   try {
     const business = await Business.findByPk(req.params.id, {
       include: User,
@@ -44,7 +62,7 @@ app.get('/businesses/:id', async (req, res) => {
 });
 
 // Get users (optional filter by businessId)
-app.get('/users', async (req, res) => {
+app.get('/users', authenticateJWT, async (req, res) => {
   try {
     const where = {};
     if (req.query.businessId) where.businessId = req.query.businessId;
@@ -56,7 +74,7 @@ app.get('/users', async (req, res) => {
 });
 
 // Create new business
-app.post('/businesses', async (req, res) => {
+app.post('/businesses', authenticateJWT, async (req, res) => {
   try {
     const business = await Business.create({ name: req.body.name });
     res.status(201).json(business);
@@ -196,6 +214,29 @@ app.post('/square/oauth-callback', async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+app.get('/business/square-connection', authenticateJWT, async (req, res) => {
+  try {
+    const businessId = req.user.businessId;
+    if (!businessId) {
+      return res.status(401).json({ error: 'Unauthorized: business ID missing' });
+    }
+
+    const business = await Business.findByPk(businessId);
+
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    const connected = !!business.squareAccessToken;
+
+    res.json({ connected });
+  } catch (error) {
+    console.error('Error checking Square connection:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
