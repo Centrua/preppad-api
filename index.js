@@ -13,7 +13,7 @@ app.use(express.json());
 const cron = require('node-cron');
 const { refreshSquareTokenIfExpiringSoon } = require('./crons/refreshSquareToken');
 
-cron.schedule('* * * * *', () => {
+cron.schedule('0 4 * * *', () => {
   console.log('Running Square token refresh job...');
   refreshSquareTokenIfExpiringSoon();
 }, {
