@@ -7,6 +7,9 @@ const { User, Business } = require('./models');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const CATALOG_URL = 'https://connect.squareupsandbox.com/v2/catalog/list?types=ITEM';
+const INVENTORY_URL = 'https://connect.squareupsandbox.com/v2/inventory/batch-retrieve-counts';
+
 app.use(cors());
 app.use(express.json());
 
@@ -237,6 +240,97 @@ app.get('/business/square-connection', authenticateJWT, async (req, res) => {
   }
 });
 
+app.get('/inventory/items', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+  }
+
+  const token = authHeader.replace('Bearer ', '');
+
+  try {
+    // Step 1: Get catalog items
+    const catalogRes = await fetch(CATALOG_URL, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!catalogRes.ok) throw new Error(await catalogRes.text());
+
+    const catalogData = await catalogRes.json();
+    const items = catalogData.objects || [];
+
+    // Collect all variation IDs
+    const variationIdMap = {};
+    const variationIds = [];
+
+    const inventoryItems = items.map(item => {
+      const { id: item_id, item_data } = item;
+      const { name, description, variations = [] } = item_data;
+
+      const formattedVariations = variations.map(variation => {
+        const { id: variation_id, item_variation_data } = variation;
+        variationIdMap[variation_id] = true;
+        variationIds.push(variation_id);
+
+        return {
+          variation_id,
+          name: item_variation_data.name,
+          price: item_variation_data.price_money?.amount
+            ? item_variation_data.price_money.amount / 100
+            : null,
+          track_inventory: item_variation_data.track_inventory,
+          stockable: item_variation_data.stockable,
+          location_inventory: item_variation_data.location_overrides || [],
+          current_count: null, // to be filled later
+        };
+      });
+
+      return {
+        item_id,
+        name,
+        description,
+        variations: formattedVariations,
+      };
+    });
+
+    // Step 2: Get inventory counts
+    const inventoryRes = await fetch(INVENTORY_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ catalog_object_ids: variationIds }),
+    });
+
+    if (!inventoryRes.ok) throw new Error(await inventoryRes.text());
+
+    const inventoryData = await inventoryRes.json();
+
+    const countMap = {};
+    (inventoryData.counts || []).forEach(count => {
+      const { catalog_object_id, quantity, location_id } = count;
+      if (!countMap[catalog_object_id]) countMap[catalog_object_id] = {};
+      countMap[catalog_object_id][location_id] = quantity;
+    });
+
+    // Step 3: Merge inventory counts into the response
+    inventoryItems.forEach(item => {
+      item.variations.forEach(variation => {
+        const locCounts = countMap[variation.variation_id] || {};
+        variation.current_count = locCounts;
+      });
+    });
+
+    res.json(inventoryItems);
+  } catch (err) {
+    console.error('Error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch inventory data' });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
