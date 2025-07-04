@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { Item, Business } = require('../../models');
+const { Item, Business, PendingPurchase } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
 
 const CATALOG_URL = 'https://connect.squareupsandbox.com/v2/catalog/list?types=ITEM';
@@ -236,6 +236,29 @@ router.delete('/items/:itemId', authenticateJWT, async (req, res) => {
   } catch (err) {
     console.error('DELETE /items/:itemId error:', err);
     res.status(500).json({ error: 'Failed to delete item' });
+  }
+});
+
+// Create a new Pending Purchase
+router.post('/pending-purchase', async (req, res) => {
+  const { itemIds, quantities, cheapestUnitPrice, vendor, totalPrice } = req.body;
+
+  if (!itemIds || !quantities || itemIds.length !== quantities.length) {
+    return res.status(400).json({ error: 'Invalid item data or mismatched itemIds and quantities' });
+  }
+
+  try {
+    const newPurchase = await PendingPurchase.create({
+      itemIds,
+      quantities,
+      cheapestUnitPrice,
+      vendor,
+      totalPrice,
+    });
+    res.status(201).json({ message: 'Pending purchase created', data: newPurchase });
+  } catch (error) {
+    console.error('Error creating pending purchase:', error);
+    res.status(500).json({ error: 'Failed to create pending purchase' });
   }
 });
 
