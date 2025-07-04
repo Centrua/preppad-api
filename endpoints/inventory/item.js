@@ -259,8 +259,13 @@ router.get('/pending-purchases', authenticateJWT, async (req, res) => {
 });
 
 // Create a new Pending Purchase
-router.post('/pending-purchase', async (req, res) => {
+router.post('/pending-purchase', authenticateJWT, async (req, res) => {
   const { itemIds, quantities, cheapestUnitPrice, vendor, totalPrice } = req.body;
+  const businessId = req.user.businessId; // Get businessId from JWT user info
+
+  if (!businessId) {
+    return res.status(400).json({ error: 'Business ID missing from user token' });
+  }
 
   if (!itemIds || !quantities || itemIds.length !== quantities.length) {
     return res.status(400).json({ error: 'Invalid item data or mismatched itemIds and quantities' });
@@ -268,6 +273,7 @@ router.post('/pending-purchase', async (req, res) => {
 
   try {
     const newPurchase = await PendingPurchase.create({
+      businessId,
       itemIds,
       quantities,
       cheapestUnitPrice,
@@ -280,5 +286,6 @@ router.post('/pending-purchase', async (req, res) => {
     res.status(500).json({ error: 'Failed to create pending purchase' });
   }
 });
+
 
 module.exports = { item: router };
