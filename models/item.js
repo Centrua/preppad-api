@@ -43,7 +43,15 @@ module.exports = (sequelize, DataTypes) => {
     isPerishable: {
       type: DataTypes.CHAR(1),
       allowNull: false
-    }
+    },
+    createdAt: {
+      allowNull: false,
+      type: DataTypes.DATE
+    },
+    updatedAt: {
+      allowNull: false,
+      type: DataTypes.DATE
+    },
   }, {
     sequelize,
     modelName: 'Item',
