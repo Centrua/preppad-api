@@ -134,4 +134,25 @@ router.post('/sync', authenticateJWT, async (req, res) => {
   }
 });
 
+// Get all items for the authenticated user's business
+router.get('/items', authenticateJWT, async (req, res) => {
+  try {
+    const businessId = req.user.businessId;
+
+    if (!businessId) {
+      return res.status(401).json({ error: 'Unauthorized: businessId missing from token' });
+    }
+
+    const items = await Item.findAll({
+      where: { businessId }
+    });
+
+    res.json(items);
+  } catch (error) {
+    console.error('❌ Failed to fetch items:', error);
+    res.status(500).json({ error: 'Failed to fetch items' });
+  }
+});
+
+
 module.exports = { item: router };
