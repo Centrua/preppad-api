@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const fetch = require('node-fetch');
 const { Business } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
 
