@@ -14,6 +14,14 @@ module.exports = (sequelize, DataTypes) => {
       primaryKey: true,
       allowNull: false
     },
+    businessId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: 'Businesses',
+        key: 'id',
+      }
+    },
     itemName: {
       type: DataTypes.STRING(255),
       allowNull: false
@@ -26,7 +34,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING(255),
       allowNull: false
     },
-    upc: {
+    sku: {
       type: DataTypes.BIGINT
     },
     expirationDate: {

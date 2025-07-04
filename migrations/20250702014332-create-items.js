@@ -21,7 +21,7 @@ module.exports = {
         type: Sequelize.STRING(255),
         allowNull: false
       },
-      upc: {
+      sku: {
         type: Sequelize.BIGINT
       },
       expirationDate: {

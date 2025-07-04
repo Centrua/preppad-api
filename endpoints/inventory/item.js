@@ -7,7 +7,7 @@ const CATALOG_URL = 'https://connect.squareupsandbox.com/v2/catalog/list?types=I
 const INVENTORY_URL = 'https://connect.squareupsandbox.com/v2/inventory/batch-retrieve-counts';
 
 // Main sync function
-async function syncSquareInventoryToDB(accessToken) {
+async function syncSquareInventoryToDB(accessToken, businessId) {
   try {
     const catalogRes = await fetch(CATALOG_URL, {
       headers: {
@@ -96,17 +96,19 @@ async function syncSquareInventoryToDB(accessToken) {
 
       await Item.upsert({
         itemId: parseInt(item.item_id.replace(/\D/g, '').slice(0, 9)) || Math.floor(Math.random() * 1e6),
-        itemName: item.name,
-        unitCost: unitCost,
-        vendor: '', // Not available from Square
-        upc: null,
+        itemName: item.name || 'Unnamed',
+        unitCost: unitCost || 0,
+        vendor: '',
+        sku: null,
         expirationDate: null,
-        unit: unit,
-        quantityInStock: totalQuantity,
+        unit: unit || 'unit',
+        quantityInStock: totalQuantity || 0,
         isPerishable: 'N',
+        businessId: businessId,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
+
     }
 
     console.log(`✅ Synced ${inventoryItems.length} items from Square to DB.`);
@@ -125,7 +127,7 @@ router.post('/sync', authenticateJWT, async (req, res) => {
       return res.status(400).json({ error: 'Business not connected to Square' });
     }
 
-    await syncSquareInventoryToDB(business.squareAccessToken);
+    await syncSquareInventoryToDB(business.squareAccessToken, business.id);
     res.json({ message: 'Inventory synced successfully' });
   } catch (err) {
     res.status(500).json({ error: 'Sync failed', details: err.message });
