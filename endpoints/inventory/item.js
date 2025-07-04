@@ -95,7 +95,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
       const unit = firstVariation ? firstVariation.name : '';
 
       await Item.upsert({
-        itemId: parseInt(item.item_id.replace(/\D/g, '').slice(0, 9)) || Math.floor(Math.random() * 1e6),
         itemName: item.name || 'Unnamed',
         unitCost: unitCost || 0,
         vendor: '',
@@ -154,5 +153,90 @@ router.get('/items', authenticateJWT, async (req, res) => {
   }
 });
 
+// POST add new item
+router.post('/items', authenticateJWT, async (req, res) => {
+  try {
+    const {
+      itemName,
+      unitCost,
+      vendor,
+      upc,
+      expirationDate,
+      unit,
+      quantityInStock,
+      isPerishable,
+    } = req.body;
+
+    const newItem = await Item.create({
+      itemName,
+      unitCost,
+      vendor,
+      upc: upc || null,
+      expirationDate: expirationDate || null,
+      unit,
+      quantityInStock,
+      isPerishable,
+      businessId: req.user.businessId,
+    });
+
+    res.status(201).json(newItem);
+  } catch (err) {
+    console.error('POST /items error:', err);
+    res.status(500).json({ error: 'Failed to create item' });
+  }
+});
+
+// PUT update item
+router.put('/items/:itemId', authenticateJWT, async (req, res) => {
+  try {
+    const { itemId } = req.params;
+
+    const item = await Item.findOne({
+      where: {
+        itemId,
+        businessId: req.user.businessId,
+      },
+    });
+
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    await item.update({
+      ...req.body,
+      upc: req.body.upc || null,
+      expirationDate: req.body.expirationDate || null,
+    });
+
+    res.json(item);
+  } catch (err) {
+    console.error('PUT /items/:itemId error:', err);
+    res.status(500).json({ error: 'Failed to update item' });
+  }
+});
+
+// DELETE item
+router.delete('/items/:itemId', authenticateJWT, async (req, res) => {
+  try {
+    const { itemId } = req.params;
+
+    const item = await Item.findOne({
+      where: {
+        itemId,
+        businessId: req.user.businessId,
+      },
+    });
+
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    await item.destroy();
+    res.json({ message: 'Item deleted successfully' });
+  } catch (err) {
+    console.error('DELETE /items/:itemId error:', err);
+    res.status(500).json({ error: 'Failed to delete item' });
+  }
+});
 
 module.exports = { item: router };
