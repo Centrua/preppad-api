@@ -6,7 +6,7 @@ const { authenticateJWT } = require('../../middleware/authenticate');
 const CATALOG_URL = 'https://connect.squareupsandbox.com/v2/catalog/list?types=ITEM';
 const INVENTORY_URL = 'https://connect.squareupsandbox.com/v2/inventory/batch-retrieve-counts';
 
-router.post('/oauth-callback', async (req, res) => {
+router.post('/square-callback', async (req, res) => {
   const { code, businessId } = req.body;
 
   const body = {
