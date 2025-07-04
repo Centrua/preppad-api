@@ -239,6 +239,25 @@ router.delete('/items/:itemId', authenticateJWT, async (req, res) => {
   }
 });
 
+router.get('/pending-purchases', authenticateJWT, async (req, res) => {
+  try {
+    const businessId = req.user.businessId;
+
+    if (!businessId) {
+      return res.status(400).json({ error: 'Business ID missing from user token' });
+    }
+
+    const purchases = await PendingPurchase.findAll({
+      where: { businessId },
+    });
+
+    res.json(purchases);
+  } catch (err) {
+    console.error('Error fetching pending purchases:', err);
+    res.status(500).json({ error: 'Failed to fetch pending purchases' });
+  }
+});
+
 // Create a new Pending Purchase
 router.post('/pending-purchase', async (req, res) => {
   const { itemIds, quantities, cheapestUnitPrice, vendor, totalPrice } = req.body;
