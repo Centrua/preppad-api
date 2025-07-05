@@ -333,22 +333,25 @@ router.put('/shopping-list', authenticateJWT, async (req, res) => {
         totalPrice,
       });
     } else {
-      // Update existing list
-      await shoppingList.update({
-        itemIds,
-        quantities,
-        cheapestUnitPrice,
-        vendor,
-        totalPrice,
-      });
+      // Append to existing arrays
+      const updatedList = {
+        itemIds: [...shoppingList.itemIds, ...itemIds],
+        quantities: [...shoppingList.quantities, ...quantities],
+        cheapestUnitPrice: [...shoppingList.cheapestUnitPrice, ...cheapestUnitPrice],
+        vendor: [...shoppingList.vendor, ...vendor],
+        totalPrice: [...shoppingList.totalPrice, ...totalPrice],
+      };
+
+      await shoppingList.update(updatedList);
     }
 
-    res.json({ message: 'Shopping list saved successfully', shoppingList });
+    res.json({ message: 'Shopping list updated successfully', shoppingList });
   } catch (err) {
     console.error('Error updating shopping list:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
 
 router.put('/shopping-list/clear', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
