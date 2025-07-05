@@ -58,6 +58,21 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       defaultValue: 5,
     },
+    ingredients: {
+      type: DataTypes.ARRAY(DataTypes.STRING),
+      allowNull: true,
+      defaultValue: [],
+    },
+    ingredientsQuantity: {
+      type: DataTypes.ARRAY(DataTypes.FLOAT),
+      allowNull: true,
+      defaultValue: [],
+    },
+    ingredientsUnit: {
+      type: DataTypes.ARRAY(DataTypes.STRING),
+      allowNull: true,
+      defaultValue: [],
+    },
     createdAt: {
       allowNull: false,
       type: DataTypes.DATE
