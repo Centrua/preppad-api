@@ -34,10 +34,19 @@ module.exports = (sequelize, DataTypes) => {
         },
         onDelete: 'CASCADE',
       },
+      unit: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
       quantityInStock: {
         type: DataTypes.INTEGER,
         allowNull: false,
         defaultValue: 0,
+      },
+      threshold: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 5,
       },
       createdAt: {
         type: DataTypes.DATE,

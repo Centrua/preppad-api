@@ -31,33 +31,6 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DECIMAL(6, 2),
       allowNull: false
     },
-    vendor: {
-      type: DataTypes.STRING(255),
-      allowNull: false
-    },
-    sku: {
-      type: DataTypes.BIGINT
-    },
-    expirationDate: {
-      type: DataTypes.DATE
-    },
-    unit: {
-      type: DataTypes.STRING(50),
-      allowNull: false
-    },
-    quantityInStock: {
-      type: DataTypes.INTEGER,
-      allowNull: false
-    },
-    isPerishable: {
-      type: DataTypes.CHAR(1),
-      allowNull: false
-    },
-    threshold: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 5,
-    },
     ingredients: {
       type: DataTypes.ARRAY(DataTypes.STRING),
       allowNull: true,

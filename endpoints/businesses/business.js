@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { Business, User } = require('../../models');
-const { authenticateJWT } = require('../../middleware/authenticate'); // adjust path
+const { authenticateJWT } = require('../../middleware/authenticate');
 
 router.post('/', authenticateJWT, async (req, res) => {
   try {
