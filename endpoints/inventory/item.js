@@ -244,34 +244,47 @@ router.delete('/items/:itemId', authenticateJWT, async (req, res) => {
 router.get('/pending-purchases', authenticateJWT, async (req, res) => {
   try {
     const businessId = req.user.businessId;
-
     if (!businessId) {
       return res.status(400).json({ error: 'Business ID missing from user token' });
     }
 
+    // Step 1: Get all pending purchases
     const purchases = await PendingPurchase.findAll({
       where: { businessId },
-      include: [
-        {
-          model: Item,
-          attributes: ['itemName'],  // Select only itemName from Item
-        },
-      ],
     });
 
-    // Format the result so itemName is more accessible (optional)
-    const formatted = purchases.map((purchase) => ({
-      ...purchase.toJSON(),
-      itemName: purchase.Item?.itemName || null,
-    }));
+    // Step 2: Collect all unique item IDs from all purchases
+    const allItemIds = Array.from(
+      new Set(purchases.flatMap(purchase => purchase.itemIds))
+    );
 
-    res.json(formatted);
+    // Step 3: Fetch the items for those IDs
+    const items = await Item.findAll({
+      where: { itemId: allItemIds },
+      attributes: ['itemId', 'itemName'],
+    });
+
+    // Create a lookup map itemId -> itemName
+    const itemMap = items.reduce((acc, item) => {
+      acc[item.itemId] = item.itemName;
+      return acc;
+    }, {});
+
+    // Step 4: Map item names back onto each purchase
+    const result = purchases.map(purchase => {
+      const itemNames = purchase.itemIds.map(id => itemMap[id] || 'Unknown Item');
+      return {
+        ...purchase.toJSON(),
+        itemNames,
+      };
+    });
+
+    res.json(result);
   } catch (err) {
     console.error('Error fetching pending purchases:', err);
     res.status(500).json({ error: 'Failed to fetch pending purchases' });
   }
 });
-
 
 // Create a new Pending Purchase
 router.post('/pending-purchase', authenticateJWT, async (req, res) => {
