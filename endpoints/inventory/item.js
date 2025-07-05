@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { Item, Business, PendingPurchase, ProcessedEvent, ShoppingList } = require('../../models');
+const { Recipe, Business, PendingPurchase, ProcessedEvent, ShoppingList } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
 const { OpenAI } = require('openai');
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -96,7 +96,7 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
       const unitCost = firstVariation ? firstVariation.price : 0;
       const unit = firstVariation ? firstVariation.name : '';
 
-      await Item.upsert({
+      await Recipe.upsert({
         itemName: item.name || 'Unnamed',
         unitCost: unitCost || 0,
         vendor: '',
@@ -144,7 +144,7 @@ router.get('/items', authenticateJWT, async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized: businessId missing from token' });
     }
 
-    const items = await Item.findAll({
+    const items = await Recipe.findAll({
       where: { businessId }
     });
 
@@ -169,7 +169,7 @@ router.post('/items', authenticateJWT, async (req, res) => {
       isPerishable,
     } = req.body;
 
-    const newItem = await Item.create({
+    const newItem = await Recipe.create({
       itemName,
       unitCost,
       vendor,
@@ -193,7 +193,7 @@ router.put('/items/:itemId', authenticateJWT, async (req, res) => {
   try {
     const { itemId } = req.params;
 
-    const item = await Item.findOne({
+    const item = await Recipe.findOne({
       where: {
         itemId,
         businessId: req.user.businessId,
@@ -222,7 +222,7 @@ router.delete('/items/:itemId', authenticateJWT, async (req, res) => {
   try {
     const { itemId } = req.params;
 
-    const item = await Item.findOne({
+    const item = await Recipe.findOne({
       where: {
         itemId,
         businessId: req.user.businessId,
@@ -259,7 +259,7 @@ router.get('/pending-purchases', authenticateJWT, async (req, res) => {
     );
 
     // Step 3: Fetch the items for those IDs
-    const items = await Item.findAll({
+    const items = await Recipe.findAll({
       where: { itemId: allItemIds },
       attributes: ['itemId', 'itemName'],
     });
@@ -335,7 +335,7 @@ router.get('/shopping-list', authenticateJWT, async (req, res) => {
     const { itemIds } = shoppingList;
 
     // Fetch items with their names
-    const items = await Item.findAll({
+    const items = await Recipe.findAll({
       where: {
         itemId: itemIds, // assuming Item's PK is itemId
         businessId: businessId,
@@ -595,7 +595,7 @@ router.get('/recipes', authenticateJWT, async (req, res) => {
   }
 
   try {
-    const items = await Item.findAll({
+    const items = await Recipe.findAll({
       where: { businessId },
       attributes: ['itemId', 'itemName', 'unitCost', 'ingredients', 'ingredientsQuantity', 'ingredientsUnit'],
     });
@@ -631,7 +631,7 @@ router.post('/recipes', authenticateJWT, async (req, res) => {
   }
 
   try {
-    const item = await Item.create({
+    const item = await Recipe.create({
       businessId,
       itemName: title,
       unitCost,
@@ -668,7 +668,7 @@ router.put('/recipes/:id', authenticateJWT, async (req, res) => {
   }
 
   try {
-    const item = await Item.findOne({
+    const item = await Recipe.findOne({
       where: { itemId: id, businessId },
     });
 
@@ -703,7 +703,7 @@ router.delete('/recipes/:id', authenticateJWT, async (req, res) => {
   const { id } = req.params;
 
   try {
-    const item = await Item.findOne({
+    const item = await Recipe.findOne({
       where: { itemId: id, businessId },
     });
 

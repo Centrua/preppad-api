@@ -2,13 +2,13 @@
 const { Model } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
-  class Item extends Model {
+  class Recipe extends Model {
     static associate(models) {
       // define associations here if needed
     }
   }
 
-  Item.init({
+  Recipe.init({
     itemId: {
       type: DataTypes.INTEGER,
       primaryKey: true,
@@ -83,8 +83,8 @@ module.exports = (sequelize, DataTypes) => {
     },
   }, {
     sequelize,
-    modelName: 'Item',
+    modelName: 'Recipe',
   });
 
-  return Item;
+  return Recipe;
 };
