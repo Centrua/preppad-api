@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { Item, Business, PendingPurchase, ProcessedEvent } = require('../../models');
+const { Item, Business, PendingPurchase, ProcessedEvent, ShoppingList } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
+const { OpenAI } = require('openai');
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const CATALOG_URL = 'https://connect.squareupsandbox.com/v2/catalog/list?types=ITEM';
 const INVENTORY_URL = 'https://connect.squareupsandbox.com/v2/inventory/batch-retrieve-counts';
@@ -304,12 +306,36 @@ router.get('/shopping-list', authenticateJWT, async (req, res) => {
       return res.status(404).json({ error: 'Shopping list not found' });
     }
 
-    res.json(shoppingList);
+    const { itemIds } = shoppingList;
+
+    // Fetch items with their names
+    const items = await Item.findAll({
+      where: {
+        itemId: itemIds, // assuming Item's PK is itemId
+        businessId: businessId,
+      },
+      attributes: ['itemId', 'itemName'],
+    });
+
+    // Map itemId → itemName
+    const itemNameMap = {};
+    items.forEach(item => {
+      itemNameMap[item.itemId] = item.itemName;
+    });
+
+    // Preserve original order
+    const itemNames = itemIds.map(id => itemNameMap[id] || 'Unknown');
+
+    res.json({
+      ...shoppingList.toJSON(),
+      itemNames,
+    });
   } catch (err) {
     console.error('Error fetching shopping list:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
 
 router.put('/shopping-list', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
@@ -382,64 +408,145 @@ router.put('/shopping-list/clear', authenticateJWT, async (req, res) => {
   }
 });
 
-router.post('/webhook/order-updated', express.json(), async (req, res) => {
-  const event = req.body;
-  const orderUpdated = event.data?.object?.order_updated;
-
-  // Defensive checks
-  if (!event || event.type !== 'order.updated' || !orderUpdated?.order_id) {
-    return res.status(400).send('Invalid payload');
-  }
-
-  const orderId = orderUpdated.order_id;
-
-  // Check if we've already processed this order
-  const existing = await ProcessedEvent.findByPk(orderId);
-  if (existing) {
-    console.log('Duplicate webhook ignored:', orderId);
-    return res.status(200).send('Already processed');
-  }
-
-  try {
-    // Check if state is COMPLETED before processing
-    if (orderUpdated.state === 'COMPLETED') {
-      // const fullOrder = await getOrder(orderId);
-
-      // Insert into ProcessedEvents to mark it as handled
-      await ProcessedEvent.create({ orderId });
-    }
-
-    res.status(200).json({ received: true });
-  } catch (err) {
-    console.error('❌ Error processing order:', err);
-    res.status(500).send('Failed to process order');
-  }
-});
-
-async function isNewEvent(eventId) {
-  const existing = await ProcessedEvent.findByPk(eventId);
-  if (existing) return false;
-
-  await ProcessedEvent.create({ eventId });
-  return true;
-}
-
-async function getOrder(orderId) {
+// Updated getOrder to take the token
+async function getOrder(orderId, accessToken) {
   const response = await fetch(`https://connect.squareupsandbox.com/v2/orders/${orderId}`, {
     method: 'GET',
     headers: {
       'Square-Version': '2023-06-08',
-      'Authorization': `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
+      'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
+    throw new Error(`Square API error: ${response.status} ${await response.text()}`);
   }
 
   const data = await response.json();
   return data.order;
 }
+
+// Webhook handler
+router.post('/webhook/order-updated', express.json(), async (req, res) => {
+  const event = req.body;
+  const orderUpdated = event.data?.object?.order_updated;
+
+  if (!event || event.type !== 'order.updated' || !orderUpdated?.order_id) {
+    return res.status(400).send('Invalid payload');
+  }
+
+  const orderId = orderUpdated.order_id;
+  const merchantId = event.merchant_id;
+
+  try {
+    // Lookup business by Square merchant ID
+    const business = await Business.findOne({ where: { squareMerchantId: merchantId } });
+    if (!business || !business.squareAccessToken) {
+      return res.status(404).send('Business not found or missing access token');
+    }
+
+    // Skip if already processed
+    const existing = await ProcessedEvent.findByPk(orderId);
+    if (existing) {
+      console.log('Duplicate webhook ignored:', orderId);
+      return res.status(200).send('Already processed');
+    }
+
+    // Only process if order is completed
+    if (orderUpdated.state === 'COMPLETED') {
+      const fullOrder = await getOrder(orderId, business.squareAccessToken);
+      // Mark order as processed
+      await ProcessedEvent.create({ orderId });
+      const businessId = business.id;
+
+      // Extract data from fullOrder.line_items
+      const itemIds = [];
+      const quantities = [];
+      const cheapestUnitPrice = [];
+      const vendor = [];
+      const totalPrice = [];
+
+      for (const item of fullOrder.line_items || []) {
+      const itemName = item.name;
+
+      // Find item in your DB by name and businessId
+      const dbItem = await Item.findOne({
+        where: {
+          itemName: itemName,
+          businessId: businessId,
+        },
+      });
+
+      if (!dbItem) {
+        console.warn(`Item not found in DB for business ${businessId}: ${itemName}`);
+        continue;
+      }
+
+      // Simulated inventory count for now
+      const inventoryCount = 4; // TODO: replace with dbItem.inventory if available
+      const THRESHOLD = 5;
+      const quantityNeeded = inventoryCount < THRESHOLD ? THRESHOLD - inventoryCount : 0;
+
+      // Skip if no quantity needed
+      if (quantityNeeded <= 0) continue;
+
+      // const itemInfo = await getCheapestPriceFromChatGPT(itemName);
+  
+      itemIds.push(dbItem.itemId);
+      quantities.push(quantityNeeded);
+      cheapestUnitPrice.push(2.00);
+      vendor.push("Kroger");
+      totalPrice.push((2.00 * quantityNeeded).toFixed(2));
+    }
+      // Update Shopping List for this business
+      let shoppingList = await ShoppingList.findOne({ where: { businessId } });
+
+      if (!shoppingList) {
+        shoppingList = await ShoppingList.create({
+          businessId,
+          itemIds,
+          quantities,
+          cheapestUnitPrice,
+          vendor,
+          totalPrice,
+        });
+      } else {
+        await shoppingList.update({
+          itemIds: [...shoppingList.itemIds, ...itemIds],
+          quantities: [...shoppingList.quantities, ...quantities],
+          cheapestUnitPrice: [...shoppingList.cheapestUnitPrice, ...cheapestUnitPrice],
+          vendor: [...shoppingList.vendor, ...vendor],
+          totalPrice: [...shoppingList.totalPrice, ...totalPrice],
+        });
+      }
+
+      console.log(`Shopping list updated for business ${businessId}`);
+    }
+
+    res.status(200).json({ received: true });
+  } catch (err) {
+    console.error('Error processing Square order webhook:', err);
+    res.status(500).send('Failed to process order');
+  }
+});
+
+// async function getCheapestPriceFromChatGPT(itemName) {
+//   const chat = await openai.chat.completions.create({
+//     model: 'gpt-4',
+//     messages: [
+//       { role: 'system', content: 'You help identify cheap vendor options for food inventory.' },
+//       { role: 'user', content: `What's the cheapest unit price and vendor for ${itemName} in Fort Wayne, Indiana?` },
+//     ],
+//   });
+
+//   const response = chat.choices[0].message.content;
+//   // You'll need to parse the response
+//   // Example expected format: "Vendor: Costco, Price: $0.35"
+//   const match = response.match(/Vendor:\s*(.*),\s*Price:\s*\$?([\d.]+)/i);
+//   return match
+//     ? { vendor: match[1], price: parseFloat(match[2]) }
+//     : { vendor: 'Unknown', price: 1.0 };
+// }
 
 module.exports = { item: router };

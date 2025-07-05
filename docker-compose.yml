@@ -19,6 +19,7 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - SQUARE_APP_ID=${SQUARE_APP_ID}
       - SQUARE_CLIENT_SECRET=${SQUARE_CLIENT_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     depends_on:
       - postgres
     networks:
