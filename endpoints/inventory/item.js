@@ -491,13 +491,13 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
       // Skip if no quantity needed
       if (quantityNeeded <= 0) continue;
 
-      // const itemInfo = await getCheapestPriceFromChatGPT(itemName);
+      const itemInfo = await getCheapestPriceFromChatGPT(itemName);
   
       itemIds.push(dbItem.itemId);
       quantities.push(quantityNeeded);
-      cheapestUnitPrice.push(2.00);
-      vendor.push("Kroger");
-      totalPrice.push((2.00 * quantityNeeded).toFixed(2));
+      cheapestUnitPrice.push(itemInfo.price);
+      vendor.push(itemInfo.vendor);
+      totalPrice.push((itemInfo.price * quantityNeeded).toFixed(2));
     }
       // Update Shopping List for this business
       let shoppingList = await ShoppingList.findOne({ where: { businessId } });
@@ -531,22 +531,36 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
   }
 });
 
-// async function getCheapestPriceFromChatGPT(itemName) {
-//   const chat = await openai.chat.completions.create({
-//     model: 'gpt-4',
-//     messages: [
-//       { role: 'system', content: 'You help identify cheap vendor options for food inventory.' },
-//       { role: 'user', content: `What's the cheapest unit price and vendor for ${itemName} in Fort Wayne, Indiana?` },
-//     ],
-//   });
+async function getCheapestPriceFromChatGPT(itemName) {
+  const chat = await openai.chat.completions.create({
+    model: 'gpt-3.5-turbo',
+    messages: [
+      {
+        role: 'system',
+        content: 'You help identify cheap vendor options for food inventory.'
+      },
+      {
+        role: 'user',
+        content: `what is the cheapest unit price and vendor/store for ${itemName} in fort wayne, indiana right now. give me only one option. when you return the response do this format: Vendor: vendor Price: price`
+      }
+    ]
+  });
 
-//   const response = chat.choices[0].message.content;
-//   // You'll need to parse the response
-//   // Example expected format: "Vendor: Costco, Price: $0.35"
-//   const match = response.match(/Vendor:\s*(.*),\s*Price:\s*\$?([\d.]+)/i);
-//   return match
-//     ? { vendor: match[1], price: parseFloat(match[2]) }
-//     : { vendor: 'Unknown', price: 1.0 };
-// }
+  const response = chat.choices[0].message.content.trim();
+  console.log('ChatGPT response:', response);
+
+  // Expected format: "Vendor: McDonald's Price: $1.00"
+  const match = response.match(/Vendor:\s*(.+?)\s+Price:\s*\$?([\d.]+)/i);
+
+  if (match) {
+    const vendor = match[1].trim();
+    const price = parseFloat(match[2]);
+    return { vendor, price };
+  } else {
+    console.warn('⚠️ Could not parse ChatGPT response:', response);
+    return { vendor: 'Unknown', price: 1.0 };
+  }
+}
+
 
 module.exports = { item: router };
