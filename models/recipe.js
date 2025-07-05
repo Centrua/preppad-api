@@ -4,7 +4,8 @@ const { Model } = require('sequelize');
 module.exports = (sequelize, DataTypes) => {
   class Recipe extends Model {
     static associate(models) {
-      // define associations here if needed
+      // Each ingredient in `ingredients` array is tied to Inventories via itemId
+      // Not enforced by Sequelize association directly — handled at application level
     }
   }
 
@@ -31,32 +32,32 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DECIMAL(6, 2),
       allowNull: false
     },
+    // Store array of inventory itemIds used as ingredients
     ingredients: {
-      type: DataTypes.ARRAY(DataTypes.STRING),
+      type: DataTypes.ARRAY(DataTypes.INTEGER),
       allowNull: true,
       defaultValue: [],
     },
+    // Quantity of each ingredient (1-to-1 index with `ingredients`)
     ingredientsQuantity: {
       type: DataTypes.ARRAY(DataTypes.FLOAT),
       allowNull: true,
       defaultValue: [],
     },
-    ingredientsUnit: {
-      type: DataTypes.ARRAY(DataTypes.STRING),
-      allowNull: true,
-      defaultValue: [],
-    },
     createdAt: {
       allowNull: false,
-      type: DataTypes.DATE
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW
     },
     updatedAt: {
       allowNull: false,
-      type: DataTypes.DATE
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW
     },
   }, {
     sequelize,
     modelName: 'Recipe',
+    tableName: 'Recipes',
   });
 
   return Recipe;
