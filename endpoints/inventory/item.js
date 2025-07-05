@@ -251,14 +251,27 @@ router.get('/pending-purchases', authenticateJWT, async (req, res) => {
 
     const purchases = await PendingPurchase.findAll({
       where: { businessId },
+      include: [
+        {
+          model: Item,
+          attributes: ['itemName'],  // Select only itemName from Item
+        },
+      ],
     });
 
-    res.json(purchases);
+    // Format the result so itemName is more accessible (optional)
+    const formatted = purchases.map((purchase) => ({
+      ...purchase.toJSON(),
+      itemName: purchase.Item?.itemName || null,
+    }));
+
+    res.json(formatted);
   } catch (err) {
     console.error('Error fetching pending purchases:', err);
     res.status(500).json({ error: 'Failed to fetch pending purchases' });
   }
 });
+
 
 // Create a new Pending Purchase
 router.post('/pending-purchase', authenticateJWT, async (req, res) => {
@@ -468,36 +481,36 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
       const totalPrice = [];
 
       for (const item of fullOrder.line_items || []) {
-      const itemName = item.name;
+        const itemName = item.name;
 
-      // Find item in your DB by name and businessId
-      const dbItem = await Item.findOne({
-        where: {
-          itemName: itemName,
-          businessId: businessId,
-        },
-      });
+        // Find item in your DB by name and businessId
+        const dbItem = await Item.findOne({
+          where: {
+            itemName: itemName,
+            businessId: businessId,
+          },
+        });
 
-      if (!dbItem) {
-        console.warn(`Item not found in DB for business ${businessId}: ${itemName}`);
-        continue;
+        if (!dbItem) {
+          console.warn(`Item not found in DB for business ${businessId}: ${itemName}`);
+          continue;
+        }
+
+        const inventoryCount = dbItem.quantityInStock;
+        const THRESHOLD = dbItem.threshold;
+        const quantityNeeded = inventoryCount < THRESHOLD ? THRESHOLD - inventoryCount : 0;
+
+        // Skip if no quantity needed
+        if (quantityNeeded <= 0) continue;
+
+        const itemInfo = await getCheapestPriceFromChatGPT(itemName);
+
+        itemIds.push(dbItem.itemId);
+        quantities.push(quantityNeeded);
+        cheapestUnitPrice.push(itemInfo.price);
+        vendor.push(itemInfo.vendor);
+        totalPrice.push((itemInfo.price * quantityNeeded).toFixed(2));
       }
-
-      const inventoryCount = dbItem.quantityInStock;
-      const THRESHOLD = dbItem.threshold;
-      const quantityNeeded = inventoryCount < THRESHOLD ? THRESHOLD - inventoryCount : 0;
-
-      // Skip if no quantity needed
-      if (quantityNeeded <= 0) continue;
-
-      const itemInfo = await getCheapestPriceFromChatGPT(itemName);
-  
-      itemIds.push(dbItem.itemId);
-      quantities.push(quantityNeeded);
-      cheapestUnitPrice.push(itemInfo.price);
-      vendor.push(itemInfo.vendor);
-      totalPrice.push((itemInfo.price * quantityNeeded).toFixed(2));
-    }
       // Update Shopping List for this business
       let shoppingList = await ShoppingList.findOne({ where: { businessId } });
 
