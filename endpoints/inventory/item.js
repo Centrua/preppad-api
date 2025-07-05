@@ -287,5 +287,96 @@ router.post('/pending-purchase', authenticateJWT, async (req, res) => {
   }
 });
 
+// GET base shopping list for a business
+router.get('/shopping-list', authenticateJWT, async (req, res) => {
+  const businessId = req.user.businessId;
+
+  if (!businessId) {
+    return res.status(400).json({ error: 'Business ID missing from token' });
+  }
+
+  try {
+    const shoppingList = await ShoppingList.findOne({
+      where: { businessId },
+    });
+
+    if (!shoppingList) {
+      return res.status(404).json({ error: 'Shopping list not found' });
+    }
+
+    res.json(shoppingList);
+  } catch (err) {
+    console.error('Error fetching shopping list:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.put('/shopping-list', authenticateJWT, async (req, res) => {
+  const businessId = req.user.businessId;
+  const { itemIds, quantities, cheapestUnitPrice, vendor, totalPrice } = req.body;
+
+  if (!businessId) {
+    return res.status(400).json({ error: 'Business ID missing from token' });
+  }
+
+  try {
+    let shoppingList = await ShoppingList.findOne({ where: { businessId } });
+
+    if (!shoppingList) {
+      // Create new list if it doesn't exist
+      shoppingList = await ShoppingList.create({
+        businessId,
+        itemIds,
+        quantities,
+        cheapestUnitPrice,
+        vendor,
+        totalPrice,
+      });
+    } else {
+      // Update existing list
+      await shoppingList.update({
+        itemIds,
+        quantities,
+        cheapestUnitPrice,
+        vendor,
+        totalPrice,
+      });
+    }
+
+    res.json({ message: 'Shopping list saved successfully', shoppingList });
+  } catch (err) {
+    console.error('Error updating shopping list:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.put('/shopping-list/clear', authenticateJWT, async (req, res) => {
+  const businessId = req.user.businessId;
+
+  if (!businessId) {
+    return res.status(400).json({ error: 'Business ID missing from token' });
+  }
+
+  try {
+    const shoppingList = await ShoppingList.findOne({ where: { businessId } });
+
+    if (!shoppingList) {
+      return res.status(404).json({ error: 'Shopping list not found' });
+    }
+
+    await shoppingList.update({
+      itemIds: [],
+      quantities: [],
+      cheapestUnitPrice: [],
+      vendor: [],
+      totalPrice: [],
+    });
+
+    res.json({ message: 'Shopping list cleared successfully', shoppingList });
+  } catch (err) {
+    console.error('Error clearing shopping list:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 module.exports = { item: router };
