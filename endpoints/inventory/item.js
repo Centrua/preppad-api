@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { Item, Business, PendingPurchase } = require('../../models');
+const { Item, Business, PendingPurchase, ProcessedEvent } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
 
 const CATALOG_URL = 'https://connect.squareupsandbox.com/v2/catalog/list?types=ITEM';
@@ -381,5 +381,65 @@ router.put('/shopping-list/clear', authenticateJWT, async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+router.post('/webhook/order-updated', express.json(), async (req, res) => {
+  const event = req.body;
+  const orderUpdated = event.data?.object?.order_updated;
+
+  // Defensive checks
+  if (!event || event.type !== 'order.updated' || !orderUpdated?.order_id) {
+    return res.status(400).send('Invalid payload');
+  }
+
+  const orderId = orderUpdated.order_id;
+
+  // Check if we've already processed this order
+  const existing = await ProcessedEvent.findByPk(orderId);
+  if (existing) {
+    console.log('Duplicate webhook ignored:', orderId);
+    return res.status(200).send('Already processed');
+  }
+
+  try {
+    // Check if state is COMPLETED before processing
+    if (orderUpdated.state === 'COMPLETED') {
+      // const fullOrder = await getOrder(orderId);
+
+      // Insert into ProcessedEvents to mark it as handled
+      await ProcessedEvent.create({ orderId });
+    }
+
+    res.status(200).json({ received: true });
+  } catch (err) {
+    console.error('❌ Error processing order:', err);
+    res.status(500).send('Failed to process order');
+  }
+});
+
+async function isNewEvent(eventId) {
+  const existing = await ProcessedEvent.findByPk(eventId);
+  if (existing) return false;
+
+  await ProcessedEvent.create({ eventId });
+  return true;
+}
+
+async function getOrder(orderId) {
+  const response = await fetch(`https://connect.squareupsandbox.com/v2/orders/${orderId}`, {
+    method: 'GET',
+    headers: {
+      'Square-Version': '2023-06-08',
+      'Authorization': `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.order;
+}
 
 module.exports = { item: router };

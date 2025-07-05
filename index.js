@@ -19,11 +19,40 @@ app.use('/users', user);
 app.use('/businesses', business);
 app.use('/inventory', item);
 
-cron.schedule('0 4 * * *', () => {
+cron.schedule('0 4 * * *', async () => {
   console.log('Running Square token refresh job...');
   refreshSquareTokenIfExpiringSoon();
+    try {
+    const deleted = await ProcessedEvent.destroy({
+      where: {
+        expiresAt: {
+          [Op.lt]: new Date(),
+        },
+      },
+    });
+
+    console.log(`🧹 Cleaned up ${deleted} expired ProcessedEvents.`);
+  } catch (error) {
+    console.error('❌ Error cleaning up expired events:', error);
+  }
 }, {
   timezone: 'UTC',
+});
+
+cron.schedule('0 4 * * *', async () => {
+  try {
+    const deleted = await ProcessedEvent.destroy({
+      where: {
+        expiresAt: {
+          [Op.lt]: new Date(),
+        },
+      },
+    });
+
+    console.log(`🧹 Cleaned up ${deleted} expired ProcessedEvents.`);
+  } catch (error) {
+    console.error('❌ Error cleaning up expired events:', error);
+  }
 });
 
 app.listen(PORT, () => {
