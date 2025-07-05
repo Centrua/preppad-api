@@ -53,6 +53,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.CHAR(1),
       allowNull: false
     },
+    threshold: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 5,
+    },
     createdAt: {
       allowNull: false,
       type: DataTypes.DATE

@@ -483,9 +483,8 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         continue;
       }
 
-      // Simulated inventory count for now
-      const inventoryCount = 4; // TODO: replace with dbItem.inventory if available
-      const THRESHOLD = 5;
+      const inventoryCount = dbItem.quantityInStock;
+      const THRESHOLD = dbItem.threshold;
       const quantityNeeded = inventoryCount < THRESHOLD ? THRESHOLD - inventoryCount : 0;
 
       // Skip if no quantity needed
