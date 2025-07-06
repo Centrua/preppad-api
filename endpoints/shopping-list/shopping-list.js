@@ -113,7 +113,13 @@ router.put('/clear', authenticateJWT, async (req, res) => {
 });
 
 // PUT /shopping-list/:id - update shopping list if item's quantity is less than max
-router.put('/:id', authenticateJWT, async (req, res) => {
+router.post('/:id/shopping-list', authenticateJWT, async (req, res) => {
+  const { id } = req.params;
+  const businessId = req.user.businessId;
+
+  if (!businessId) {
+    return res.status(400).json({ error: 'Business ID missing from user token' });
+  }
   try {
     const businessId = req.user.businessId;
     const { id } = req.params;
@@ -146,20 +152,19 @@ router.put('/:id', authenticateJWT, async (req, res) => {
           itemIds: [],
           quantities: [],
         });
-      }
-
-      const itemIndex = shoppingList.itemIds.indexOf(Number(id));
-      console.log(`🔍 itemIndex in shopping list: ${itemIndex}`);
-
-      if (itemIndex !== -1) {
-        shoppingList.quantities[itemIndex] = neededQty;
       } else {
-        shoppingList.itemIds.push(Number(id));
-        shoppingList.quantities.push(neededQty);
-      }
-
-      await shoppingList.save();
-      console.log('🛒 Shopping list updated');
+      // Update existing quantities or add new ones
+      const updatedItemIds = [...shoppingList.itemIds];
+      const updatedQuantities = [...shoppingList.quantities];
+      const existingIdx = updatedItemIds.indexOf(id);
+        if (existingIdx !== -1) {
+          updatedQuantities[existingIdx] += neededQty;
+        } else {
+          updatedItemIds.push(id);
+          updatedQuantities.push(neededQty);
+        }
+      await shoppingList.update({ itemIds: updatedItemIds, quantities: updatedQuantities });
+    }
     } else {
       console.log('✅ Inventory is sufficient; no update to shopping list');
     }
