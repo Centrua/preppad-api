@@ -153,18 +153,24 @@ router.post('/:id/shopping-list', authenticateJWT, async (req, res) => {
           quantities: [],
         });
       } else {
-      // Update existing quantities or add new ones
-      const updatedItemIds = [...shoppingList.itemIds];
-      const updatedQuantities = [...shoppingList.quantities];
-      const existingIdx = updatedItemIds.indexOf(id);
+        // Update existing quantities or add new ones
+        const numericId = Number(id);
+        const updatedItemIds = [...shoppingList.itemIds];
+        const updatedQuantities = [...shoppingList.quantities];
+        const existingIdx = updatedItemIds.findIndex(itemId => Number(itemId) === numericId);
+
+        console.log('🧾 Checking inventory id index:', existingIdx);
+
         if (existingIdx !== -1) {
-          updatedQuantities[existingIdx] += neededQty;
+          updatedQuantities[existingIdx] = neededQty;
         } else {
-          updatedItemIds.push(id);
+          updatedItemIds.push(numericId);
           updatedQuantities.push(neededQty);
         }
-      await shoppingList.update({ itemIds: updatedItemIds, quantities: updatedQuantities });
-    }
+
+        await shoppingList.update({ itemIds: updatedItemIds, quantities: updatedQuantities });
+
+      }
     } else {
       console.log('✅ Inventory is sufficient; no update to shopping list');
     }
