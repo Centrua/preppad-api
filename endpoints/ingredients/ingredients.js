@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { Recipe, Inventory } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
-const { Op } = require('sequelize');
+const { Op, Sequelize } = require('sequelize');
 
 // Get all ingredients for the authenticated user's business
 router.get('/', authenticateJWT, async (req, res) => {
@@ -120,6 +120,52 @@ router.delete('/:id', authenticateJWT, async (req, res) => {
   } catch (err) {
     console.error('DELETE /ingredients/:id error:', err);
     res.status(500).json({ error: 'Failed to delete item' });
+  }
+});
+
+// GET /overstocked - Get all overstocked ingredients for the business
+router.get('/overstocked', authenticateJWT, async (req, res) => {
+  try {
+    const businessId = req.user.businessId;
+    if (!businessId) {
+      return res.status(401).json({ error: 'Unauthorized: businessId missing from token' });
+    }
+    // Consider overstocked if quantityInStock > max and max is not null
+    const overstocked = await Inventory.findAll({
+      where: {
+        businessId,
+        max: { [Op.not]: null },
+        quantityInStock: { [Op.gt]: Sequelize.col('max') },
+      },
+      attributes: ['id', 'itemName', 'quantityInStock', 'max'],
+    });
+    res.json({ overstocked });
+  } catch (err) {
+    console.error('Error fetching overstocked ingredients:', err);
+    res.status(500).json({ error: 'Failed to fetch overstocked ingredients' });
+  }
+});
+
+// GET /understocked - Get all understocked ingredients for the business
+router.get('/understocked', authenticateJWT, async (req, res) => {
+  try {
+    const businessId = req.user.businessId;
+    if (!businessId) {
+      return res.status(401).json({ error: 'Unauthorized: businessId missing from token' });
+    }
+    // Consider understocked if quantityInStock < max and max is not null
+    const understocked = await Inventory.findAll({
+      where: {
+        businessId,
+        max: { [Op.not]: null },
+        quantityInStock: { [Op.lt]: Sequelize.col('max') },
+      },
+      attributes: ['id', 'itemName', 'quantityInStock', 'max'],
+    });
+    res.json({ understocked });
+  } catch (err) {
+    console.error('Error fetching understocked ingredients:', err);
+    res.status(500).json({ error: 'Failed to fetch understocked ingredients' });
   }
 });
 

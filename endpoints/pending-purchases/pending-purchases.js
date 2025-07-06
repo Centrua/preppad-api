@@ -101,4 +101,111 @@ router.put('/:id/complete', authenticateJWT, async (req, res) => {
   }
 });
 
+// Endpoint to get the difference between initial and confirmed pending purchase quantities and add the difference to the business's base shopping list
+router.post('/:id/diff-to-shopping-list', authenticateJWT, async (req, res) => {
+  const { id } = req.params;
+  const businessId = req.user.businessId;
+  const { confirmedQuantities } = req.body;
+
+  if (!businessId) {
+    return res.status(400).json({ error: 'Business ID missing from user token' });
+  }
+
+  try {
+    // Find the pending purchase (for initial quantities)
+    const purchase = await PendingPurchase.findOne({ where: { id, businessId } });
+    if (!purchase) {
+      return res.status(404).json({ error: 'Pending purchase not found' });
+    }
+    if (purchase.status !== 'completed') {
+      return res.status(400).json({ error: 'Purchase must be completed to compare quantities' });
+    }
+
+    const initialQuantities = purchase.quantities;
+    const itemIds = purchase.itemIds;
+
+    if (!initialQuantities || !confirmedQuantities || !itemIds || initialQuantities.length !== confirmedQuantities.length) {
+      return res.status(400).json({ error: 'Missing or mismatched quantities for diff calculation' });
+    }
+
+    // Calculate the difference for each item
+    const diffItemIds = [];
+    const diffQuantities = [];
+    itemIds.forEach((itemId, idx) => {
+      const diff = initialQuantities[idx] - confirmedQuantities[idx];
+      if (diff > 0) { // Only add positive differences
+        diffItemIds.push(itemId);
+        diffQuantities.push(diff);
+      }
+    });
+
+    // Update the pending purchase with the confirmed quantities
+    await purchase.update({ quantities: confirmedQuantities });
+
+    // Use the ShoppingList PUT endpoint logic to add/update items
+    const { ShoppingList } = require('../../models');
+    let shoppingList = await ShoppingList.findOne({ where: { businessId } });
+    if (!shoppingList) {
+      shoppingList = await ShoppingList.create({
+        businessId,
+        itemIds: diffItemIds,
+        quantities: diffQuantities,
+      });
+    } else {
+      // Update existing quantities or add new ones
+      const updatedItemIds = [...shoppingList.itemIds];
+      const updatedQuantities = [...shoppingList.quantities];
+      diffItemIds.forEach((itemId, idx) => {
+        const diffQty = diffQuantities[idx];
+        const existingIdx = updatedItemIds.indexOf(itemId);
+        if (existingIdx !== -1) {
+          updatedQuantities[existingIdx] += diffQty;
+        } else {
+          updatedItemIds.push(itemId);
+          updatedQuantities.push(diffQty);
+        }
+      });
+      await shoppingList.update({ itemIds: updatedItemIds, quantities: updatedQuantities });
+    }
+
+    res.json({ message: 'Differences added to shopping list', itemIds: diffItemIds, quantities: diffQuantities });
+  } catch (error) {
+    console.error('Error diffing and updating shopping list:', error);
+    res.status(500).json({ error: 'Failed to update shopping list with differences' });
+  }
+});
+
+// Endpoint to update inventory counts for a business based on itemIds and quantities from the dialog box
+router.post('/:id/update-inventory', authenticateJWT, async (req, res) => {
+  const { id } = req.params;
+  const businessId = req.user.businessId;
+  const { itemIds, quantities } = req.body;
+
+  if (!businessId) {
+    return res.status(400).json({ error: 'Business ID missing from user token' });
+  }
+  if (!itemIds || !quantities || itemIds.length !== quantities.length) {
+    return res.status(400).json({ error: 'Invalid itemIds or quantities' });
+  }
+
+  try {
+    const { Inventory } = require('../../models');
+    // For each item, update the inventory count for this business
+    for (let i = 0; i < itemIds.length; i++) {
+      const itemId = itemIds[i];
+      const quantity = quantities[i];
+      // Find the inventory record for this business and item
+      const inventory = await Inventory.findOne({ where: { id: itemId, businessId } });
+      if (inventory) {
+        // Add the purchased quantity to the inventory
+        await inventory.update({ quantityInStock: (inventory.quantityInStock || 0) + quantity });
+      }
+    }
+    res.json({ message: 'Inventory updated successfully' });
+  } catch (error) {
+    console.error('Error updating inventory:', error);
+    res.status(500).json({ error: 'Failed to update inventory' });
+  }
+});
+
 module.exports = { pendingPurchases: router };
