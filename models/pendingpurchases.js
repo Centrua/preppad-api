@@ -31,6 +31,16 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.ARRAY(DataTypes.INTEGER),
         allowNull: false,
       },
+      totalPrice: {
+        type: DataTypes.FLOAT,
+        allowNull: true,
+        defaultValue: null,
+      },
+      status: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        defaultValue: 'pending',
+      },
       createdAt: {
         type: DataTypes.DATE,
         allowNull: false,

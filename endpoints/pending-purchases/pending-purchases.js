@@ -78,4 +78,27 @@ router.post('/', authenticateJWT, async (req, res) => {
   }
 });
 
+// Update a pending purchase's status and total price
+router.put('/:id/complete', authenticateJWT, async (req, res) => {
+  const { id } = req.params;
+  const { totalPrice } = req.body;
+  const businessId = req.user.businessId;
+
+  if (!businessId) {
+    return res.status(400).json({ error: 'Business ID missing from user token' });
+  }
+
+  try {
+    const purchase = await PendingPurchase.findOne({ where: { id, businessId } });
+    if (!purchase) {
+      return res.status(404).json({ error: 'Pending purchase not found' });
+    }
+    await purchase.update({ status: 'completed', totalPrice });
+    res.json({ message: 'Pending purchase marked as completed', data: purchase });
+  } catch (error) {
+    console.error('Error updating pending purchase:', error);
+    res.status(500).json({ error: 'Failed to update pending purchase' });
+  }
+});
+
 module.exports = { pendingPurchases: router };
