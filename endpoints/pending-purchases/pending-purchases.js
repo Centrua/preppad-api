@@ -175,4 +175,37 @@ router.post('/:id/diff-to-shopping-list', authenticateJWT, async (req, res) => {
   }
 });
 
+// Endpoint to update inventory counts for a business based on itemIds and quantities from the dialog box
+router.post('/:id/update-inventory', authenticateJWT, async (req, res) => {
+  const { id } = req.params;
+  const businessId = req.user.businessId;
+  const { itemIds, quantities } = req.body;
+
+  if (!businessId) {
+    return res.status(400).json({ error: 'Business ID missing from user token' });
+  }
+  if (!itemIds || !quantities || itemIds.length !== quantities.length) {
+    return res.status(400).json({ error: 'Invalid itemIds or quantities' });
+  }
+
+  try {
+    const { Inventory } = require('../../models');
+    // For each item, update the inventory count for this business
+    for (let i = 0; i < itemIds.length; i++) {
+      const itemId = itemIds[i];
+      const quantity = quantities[i];
+      // Find the inventory record for this business and item
+      const inventory = await Inventory.findOne({ where: { id: itemId, businessId } });
+      if (inventory) {
+        // Add the purchased quantity to the inventory
+        await inventory.update({ quantityInStock: (inventory.quantityInStock || 0) + quantity });
+      }
+    }
+    res.json({ message: 'Inventory updated successfully' });
+  } catch (error) {
+    console.error('Error updating inventory:', error);
+    res.status(500).json({ error: 'Failed to update inventory' });
+  }
+});
+
 module.exports = { pendingPurchases: router };
