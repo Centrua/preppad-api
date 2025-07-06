@@ -31,18 +31,6 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.ARRAY(DataTypes.INTEGER),
         allowNull: false,
       },
-      cheapestUnitPrice: {
-        type: DataTypes.ARRAY(DataTypes.DECIMAL(10, 2)),
-        allowNull: false,
-      },
-      vendor: {
-        type: DataTypes.ARRAY(DataTypes.STRING(255)),
-        allowNull: false,
-      },
-      totalPrice: {
-        type: DataTypes.ARRAY(DataTypes.DECIMAL(10, 2)),
-        allowNull: false,
-      },
       createdAt: {
         type: DataTypes.DATE,
         allowNull: false,

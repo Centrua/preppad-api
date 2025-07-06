@@ -20,15 +20,16 @@ router.get('/', authenticateJWT, async (req, res) => {
       new Set(purchases.flatMap(purchase => purchase.itemIds))
     );
 
-    // Step 3: Fetch the items for those IDs
-    const items = await Recipe.findAll({
-      where: { itemId: allItemIds },
-      attributes: ['itemId', 'itemName'],
+    // Step 3: Fetch the items for those IDs from Inventory
+    const Inventory = require('../../models').Inventory;
+    const items = await Inventory.findAll({
+      where: { id: allItemIds },
+      attributes: ['id', 'itemName'],
     });
 
-    // Create a lookup map itemId -> itemName
+    // Create a lookup map id -> itemName
     const itemMap = items.reduce((acc, item) => {
-      acc[item.itemId] = item.itemName;
+      acc[item.id] = item.itemName;
       return acc;
     }, {});
 
