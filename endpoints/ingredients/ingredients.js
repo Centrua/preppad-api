@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { Recipe, Inventory } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
+const { Op } = require('sequelize');
 
 // Get all ingredients for the authenticated user's business
 router.get('/', authenticateJWT, async (req, res) => {
@@ -27,18 +28,20 @@ router.get('/', authenticateJWT, async (req, res) => {
 router.post('/', authenticateJWT, async (req, res) => {
   try {
     const businessId = req.user.businessId;
-    const { itemId, unit, quantityInStock, threshold } = req.body;
+    const { itemName, unit, baseUnit, quantityInStock, threshold, max } = req.body;
 
-    if (!itemId || !unit) {
-      return res.status(400).json({ error: 'Missing required fields: itemId and unit' });
+    if (!itemName && !unit) {
+      return res.status(400).json({ error: 'Missing required field: itemName, Unit' });
     }
 
     const inventory = await Inventory.create({
+      itemName: itemName || null,
       businessId,
-      itemId,
       unit,
+      baseUnit,
       quantityInStock: quantityInStock,
       threshold: threshold,
+      max: max,
     });
 
     res.status(201).json(inventory);
@@ -53,7 +56,7 @@ router.put('/:id', authenticateJWT, async (req, res) => {
   try {
     const businessId = req.user.businessId;
     const { id } = req.params;
-    const { itemId, unit, quantityInStock, threshold } = req.body;
+    const { itemId, unit, baseUnit, quantityInStock, threshold, max } = req.body;
 
     const inventory = await Inventory.findOne({
       where: {
@@ -69,8 +72,10 @@ router.put('/:id', authenticateJWT, async (req, res) => {
     await inventory.update({
       itemId: itemId !== undefined ? itemId : inventory.itemId,
       unit: unit !== undefined ? unit : inventory.unit,
+      baseUnit: baseUnit !== undefined ? baseUnit : inventory.baseUnit,
       quantityInStock: quantityInStock !== undefined ? quantityInStock : inventory.quantityInStock,
       threshold: threshold !== undefined ? threshold : inventory.threshold,
+      max: max !== undefined ? max : inventory.max,
     });
 
     res.json(inventory);
@@ -81,14 +86,29 @@ router.put('/:id', authenticateJWT, async (req, res) => {
 });
 
 // DELETE item
-router.delete('/:itemId', authenticateJWT, async (req, res) => {
+router.delete('/:id', authenticateJWT, async (req, res) => {
   try {
-    const { itemId } = req.params;
+    const { id } = req.params;
+    const businessId = req.user.businessId;
 
-    const item = await Recipe.findOne({
+    // Check if this ingredient is used in any recipe
+    const recipesUsingIngredient = await Recipe.findOne({
       where: {
-        itemId,
-        businessId: req.user.businessId,
+        businessId,
+        ingredients: { [Op.contains]: [parseInt(id)] },
+      },
+    });
+
+    if (recipesUsingIngredient) {
+      return res.status(409).json({
+        error: 'This ingredient is used in one or more recipes. Please remove it from all recipes before deleting.',
+      });
+    }
+
+    const item = await Inventory.findOne({
+      where: {
+        id,
+        businessId,
       },
     });
 
@@ -99,7 +119,7 @@ router.delete('/:itemId', authenticateJWT, async (req, res) => {
     await item.destroy();
     res.json({ message: 'Item deleted successfully' });
   } catch (err) {
-    console.error('DELETE /items/:itemId error:', err);
+    console.error('DELETE /ingredients/:id error:', err);
     res.status(500).json({ error: 'Failed to delete item' });
   }
 });

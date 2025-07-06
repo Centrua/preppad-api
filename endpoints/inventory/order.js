@@ -1,12 +1,38 @@
 const express = require('express');
 const router = express.Router();
-const { Recipe, Business, ProcessedEvent, ShoppingList } = require('../../models');
+const { Recipe, Business, ProcessedEvent, ShoppingList, Inventory } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
 const { OpenAI } = require('openai');
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const CATALOG_URL = 'https://connect.squareupsandbox.com/v2/catalog/list?types=ITEM';
 const INVENTORY_URL = 'https://connect.squareupsandbox.com/v2/inventory/batch-retrieve-counts';
+
+// Add this helper function near the top of your file
+function convertToBaseUnit(amount, fromUnit, toUnit) {
+  // Conversion rates to "Teaspoons" as the smallest common denominator
+  const toTeaspoons = {
+    'Teaspoons': 1,
+    'Tablespoons': 3,
+    'Fluid Ounces': 6,
+    'Cups': 48,
+    'Pints': 96,
+    'Quarts': 192,
+    'Gallons': 768,
+    'Dry Ounces': 6, // Approximate for water
+    'Count': 1,
+    'Slices': 1,
+  };
+
+  if (fromUnit === toUnit) return amount;
+
+  // If either unit is not in the table, return as-is
+  if (!toTeaspoons[fromUnit] || !toTeaspoons[toUnit]) return amount;
+
+  // Convert from fromUnit to teaspoons, then to toUnit
+  const amountInTeaspoons = amount * toTeaspoons[fromUnit];
+  return amountInTeaspoons / toTeaspoons[toUnit];
+}
 
 // Main sync function
 async function syncSquareInventoryToDB(accessToken, businessId) {
@@ -176,23 +202,16 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
 
     // Only process if order is completed
     if (orderUpdated.state === 'COMPLETED') {
+      await ProcessedEvent.create({ orderId });
       const fullOrder = await getOrder(orderId, business.squareAccessToken);
       // Mark order as processed
-      await ProcessedEvent.create({ orderId });
       const businessId = business.id;
-
-      // Extract data from fullOrder.line_items
-      const itemIds = [];
-      const quantities = [];
-      const cheapestUnitPrice = [];
-      const vendor = [];
-      const totalPrice = [];
 
       for (const item of fullOrder.line_items || []) {
         const itemName = item.name;
 
         // Find item in your DB by name and businessId
-        const dbItem = await Item.findOne({
+        const dbItem = await Recipe.findOne({
           where: {
             itemName: itemName,
             businessId: businessId,
@@ -204,82 +223,90 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
           continue;
         }
 
-        const inventoryCount = dbItem.quantityInStock;
-        const THRESHOLD = dbItem.threshold;
-        const quantityNeeded = inventoryCount < THRESHOLD ? THRESHOLD - inventoryCount : 0;
+        // Get or create the shopping list for this business
+        let shoppingList = await ShoppingList.findOne({ where: { businessId } });
+        if (!shoppingList) {
+          shoppingList = await ShoppingList.create({
+            businessId,
+            itemIds: [],
+            quantities: [],
+          });
+        }
 
-        // Skip if no quantity needed
-        if (quantityNeeded <= 0) continue;
+        // Convert to mutable arrays for easier updates
+        let currentItemIds = Array.isArray(shoppingList.itemIds) ? [...shoppingList.itemIds] : [];
+        let currentQuantities = Array.isArray(shoppingList.quantities) ? [...shoppingList.quantities] : [];
 
-        const itemInfo = await getCheapestPriceFromChatGPT(itemName);
+        // For each ingredient in the recipe
+        if (dbItem.ingredients && dbItem.ingredients.length > 0) {
+          // Get the quantity of this item ordered from Square (default to 1 if missing)
+          const itemQuantityOrdered = Number(item.quantity) || 1;
+          for (let i = 0; i < dbItem.ingredients.length; i++) {
+            const ingredientId = dbItem.ingredients[i];
+            const ingredientQtyUsedRaw = dbItem.ingredientsQuantity?.[i] || 0;
+            const ingredient = await Inventory.findOne({
+              where: {
+                id: ingredientId,
+                businessId: businessId,
+              },
+            });
 
-        itemIds.push(dbItem.itemId);
-        quantities.push(quantityNeeded);
-        cheapestUnitPrice.push(itemInfo.price);
-        vendor.push(itemInfo.vendor);
-        totalPrice.push((itemInfo.price * quantityNeeded).toFixed(2));
-      }
-      // Update Shopping List for this business
-      let shoppingList = await ShoppingList.findOne({ where: { businessId } });
+            if (!ingredient) continue;
 
-      if (!shoppingList) {
-        shoppingList = await ShoppingList.create({
-          businessId,
-          itemIds,
-          quantities,
-          cheapestUnitPrice,
-          vendor,
-          totalPrice,
-        });
-      } else {
+            // Multiply by the quantity ordered from Square
+            const totalQtyUsedRaw = ingredientQtyUsedRaw * itemQuantityOrdered;
+
+            // Convert recipe unit to base unit for subtraction
+            const recipeUnit = dbItem.unit || ingredient.unit; // fallback if needed
+            const baseUnit = ingredient.baseUnit || ingredient.unit;
+            let ingredientQtyUsed = convertToBaseUnit(totalQtyUsedRaw, recipeUnit, baseUnit);
+
+            // For shopping list, round up to the next whole number (can't buy a fraction)
+            const ingredientQtyUsedWhole = Math.ceil(ingredientQtyUsed);
+
+            // Subtract the used quantity (in base unit)
+            const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
+            await ingredient.update({ quantityInStock: newQuantity });
+
+            // Only add to shopping list if we've hit or gone below the threshold
+            if (newQuantity <= ingredient.threshold) {
+              const idx = currentItemIds.indexOf(ingredientId);
+              const needed = (ingredient.max || ingredient.threshold) - newQuantity;
+              if (idx === -1) {
+                // Not in shopping list: add enough to restock to max (rounded up)
+                if (needed > 0) {
+                  currentItemIds.push(ingredientId);
+                  currentQuantities.push(Math.ceil(needed));
+                }
+              } else {
+                // Already in shopping list
+                if (currentQuantities[idx] >= (ingredient.max || ingredient.threshold)) {
+                  // If already at max, just add the new ingredientQtyUsedWhole
+                  currentQuantities[idx] += ingredientQtyUsedWhole;
+                } else {
+                  // Otherwise, set to needed to restock to max
+                  if (needed > 0) {
+                    currentQuantities[idx] = Math.ceil(needed);
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Update the shopping list in the DB
         await shoppingList.update({
-          itemIds: [...shoppingList.itemIds, ...itemIds],
-          quantities: [...shoppingList.quantities, ...quantities],
-          cheapestUnitPrice: [...shoppingList.cheapestUnitPrice, ...cheapestUnitPrice],
-          vendor: [...shoppingList.vendor, ...vendor],
-          totalPrice: [...shoppingList.totalPrice, ...totalPrice],
+          itemIds: currentItemIds,
+          quantities: currentQuantities,
         });
       }
 
-      console.log(`Shopping list updated for business ${businessId}`);
+      res.status(200).json({ received: true });
     }
-
-    res.status(200).json({ received: true });
   } catch (err) {
     console.error('Error processing Square order webhook:', err);
     res.status(500).send('Failed to process order');
   }
 });
-
-async function getCheapestPriceFromChatGPT(itemName) {
-  const chat = await openai.chat.completions.create({
-    model: 'gpt-3.5-turbo',
-    messages: [
-      {
-        role: 'system',
-        content: 'You help identify cheap vendor options for food inventory.'
-      },
-      {
-        role: 'user',
-        content: `what is the cheapest unit price and vendor/store for ${itemName} in fort wayne, indiana right now. give me only one option. when you return the response do this format: Vendor: vendor Price: price`
-      }
-    ]
-  });
-
-  const response = chat.choices[0].message.content.trim();
-  console.log('ChatGPT response:', response);
-
-  // Expected format: "Vendor: McDonald's Price: $1.00"
-  const match = response.match(/Vendor:\s*(.+?)\s+Price:\s*\$?([\d.]+)/i);
-
-  if (match) {
-    const vendor = match[1].trim();
-    const price = parseFloat(match[2]);
-    return { vendor, price };
-  } else {
-    console.warn('⚠️ Could not parse ChatGPT response:', response);
-    return { vendor: 'Unknown', price: 1.0 };
-  }
-}
 
 module.exports = { order: router };

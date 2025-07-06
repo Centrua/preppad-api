@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { Recipe} = require('../../models');
+const { Recipe, Inventory } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
 
 router.get('/', authenticateJWT, async (req, res) => {
@@ -11,17 +11,32 @@ router.get('/', authenticateJWT, async (req, res) => {
   }
 
   try {
+    // Fetch all inventories for this business
+    const inventories = await Inventory.findAll({
+      where: { businessId },
+      attributes: ['id', 'itemName', 'unit'], // <-- include unit
+      raw: true,
+    });
+    // Create a map for quick lookup
+    const inventoryMap = {};
+    inventories.forEach(inv => {
+      inventoryMap[inv.id] = { itemName: inv.itemName, unit: inv.unit }; // <-- store both
+    });
+
     const items = await Recipe.findAll({
       where: { businessId },
-      attributes: ['itemId', 'itemName', 'unitCost', 'ingredients', 'ingredientsQuantity', 'ingredientsUnit'],
+      attributes: ['itemId', 'itemName', 'unitCost', 'ingredients', 'ingredientsQuantity'],
     });
 
     const recipes = items.map((item) => {
-      const ingredients = (item.ingredients || []).map((title, idx) => ({
-        title,
-        quantity: item.ingredientsQuantity?.[idx] || '',
-        unit: item.ingredientsUnit?.[idx] || '',
-      }));
+      const ingredients = (item.ingredients || []).map((ingredientId, idx) => {
+        const inv = inventoryMap[ingredientId] || {};
+        return {
+          title: inv.itemName || 'Unknown',
+          unit: inv.unit || '',
+          quantity: item.ingredientsQuantity?.[idx] || '',
+        };
+      });
 
       return {
         id: item.itemId,
@@ -40,7 +55,7 @@ router.get('/', authenticateJWT, async (req, res) => {
 
 router.post('/', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
-  const { title, unitCost, ingredients, ingredientsQuantity, ingredientsUnit } = req.body;
+  const { title, unitCost, ingredients, ingredientsQuantity} = req.body;
 
   if (!businessId || !title || !ingredients) {
     return res.status(400).json({ error: 'Missing data' });
@@ -53,11 +68,6 @@ router.post('/', authenticateJWT, async (req, res) => {
       unitCost,
       ingredients,
       ingredientsQuantity,
-      ingredientsUnit,
-      vendor: 'Recipe', // placeholder
-      unit: 'N/A',      // placeholder
-      quantityInStock: 0, // default
-      isPerishable: 'N', // default
     });
 
     res.status(201).json({
@@ -66,7 +76,6 @@ router.post('/', authenticateJWT, async (req, res) => {
       unitCost: item.unitCost,
       ingredients: item.ingredients,
       ingredientsQuantity: item.ingredientsQuantity,
-      ingredientsUnit: item.ingredientsUnit,
     });
   } catch (err) {
     console.error('Error creating recipe:', err);
@@ -77,7 +86,7 @@ router.post('/', authenticateJWT, async (req, res) => {
 router.put('/:id', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
   const { id } = req.params;
-  const { title, unitCost, ingredients, ingredientsQuantity, ingredientsUnit } = req.body;
+  const { title, unitCost, ingredients, ingredientsQuantity } = req.body;
 
   if (!businessId || !id || !title || !ingredients) {
     return res.status(400).json({ error: 'Missing data' });
@@ -96,7 +105,6 @@ router.put('/:id', authenticateJWT, async (req, res) => {
     item.unitCost = unitCost;
     item.ingredients = ingredients;
     item.ingredientsQuantity = ingredientsQuantity;
-    item.ingredientsUnit = ingredientsUnit;
 
     await item.save();
 
@@ -106,7 +114,6 @@ router.put('/:id', authenticateJWT, async (req, res) => {
       unitCost: item.unitCost,
       ingredients,
       ingredientsQuantity,
-      ingredientsUnit,
     });
   } catch (err) {
     console.error('Error updating recipe:', err);

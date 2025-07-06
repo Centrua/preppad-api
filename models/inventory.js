@@ -5,7 +5,6 @@ module.exports = (sequelize, DataTypes) => {
   class Inventory extends Model {
     static associate(models) {
       Inventory.belongsTo(models.Business, { foreignKey: 'businessId' });
-      Inventory.belongsTo(models.Recipe, { foreignKey: 'itemId' });
     }
   }
 
@@ -25,21 +24,12 @@ module.exports = (sequelize, DataTypes) => {
         },
         onDelete: 'CASCADE',
       },
-      itemId: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        references: {
-          model: 'Items',
-          key: 'itemId',
-        },
-        onDelete: 'CASCADE',
-      },
       unit: {
         type: DataTypes.STRING,
         allowNull: false,
       },
       quantityInStock: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.FLOAT,
         allowNull: false,
         defaultValue: 0,
       },
@@ -57,6 +47,20 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DATE,
         allowNull: false,
         defaultValue: DataTypes.NOW,
+      },
+      itemName: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      max: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: null,
+      },
+      baseUnit: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: null,
       },
     },
     {

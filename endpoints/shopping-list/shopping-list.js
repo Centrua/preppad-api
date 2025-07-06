@@ -22,19 +22,18 @@ router.get('/', authenticateJWT, async (req, res) => {
 
     const { itemIds } = shoppingList;
 
-    // Fetch items with their names
-    const items = await Recipe.findAll({
+    // Fetch items from Inventory by their IDs
+    const items = await require('../../models').Inventory.findAll({
       where: {
-        itemId: itemIds, // assuming Item's PK is itemId
-        businessId: businessId,
+        id: itemIds,
       },
-      attributes: ['itemId', 'itemName'],
+      attributes: ['id', 'itemName'],
     });
 
-    // Map itemId → itemName
+    // Map id → itemName
     const itemNameMap = {};
     items.forEach(item => {
-      itemNameMap[item.itemId] = item.itemName;
+      itemNameMap[item.id] = item.itemName;
     });
 
     // Preserve original order
@@ -51,9 +50,10 @@ router.get('/', authenticateJWT, async (req, res) => {
 });
 
 
+// Update shopping list (PUT)
 router.put('/', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
-  const { itemIds, quantities, cheapestUnitPrice, vendor, totalPrice } = req.body;
+  const { itemIds, quantities } = req.body;
 
   if (!businessId) {
     return res.status(400).json({ error: 'Business ID missing from token' });
@@ -68,18 +68,12 @@ router.put('/', authenticateJWT, async (req, res) => {
         businessId,
         itemIds,
         quantities,
-        cheapestUnitPrice,
-        vendor,
-        totalPrice,
       });
     } else {
       // Append to existing arrays
       const updatedList = {
         itemIds: [...shoppingList.itemIds, ...itemIds],
         quantities: [...shoppingList.quantities, ...quantities],
-        cheapestUnitPrice: [...shoppingList.cheapestUnitPrice, ...cheapestUnitPrice],
-        vendor: [...shoppingList.vendor, ...vendor],
-        totalPrice: [...shoppingList.totalPrice, ...totalPrice],
       };
 
       await shoppingList.update(updatedList);
@@ -93,6 +87,7 @@ router.put('/', authenticateJWT, async (req, res) => {
 });
 
 
+// Clear shopping list (PUT /clear)
 router.put('/clear', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
 
@@ -110,9 +105,6 @@ router.put('/clear', authenticateJWT, async (req, res) => {
     await shoppingList.update({
       itemIds: [],
       quantities: [],
-      cheapestUnitPrice: [],
-      vendor: [],
-      totalPrice: [],
     });
 
     res.json({ message: 'Shopping list cleared successfully', shoppingList });
