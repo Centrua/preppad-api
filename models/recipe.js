@@ -60,6 +60,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW
     },
+    categories: {
+      type: DataTypes.ARRAY(DataTypes.STRING),
+      allowNull: true,
+      defaultValue: [],
+    },
   }, {
     sequelize,
     modelName: 'Recipe',
