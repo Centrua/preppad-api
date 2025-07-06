@@ -14,18 +14,18 @@ router.get('/', authenticateJWT, async (req, res) => {
     // Fetch all inventories for this business
     const inventories = await Inventory.findAll({
       where: { businessId },
-      attributes: ['id', 'itemName', 'unit'], // <-- include unit
+      attributes: ['id', 'itemName', 'allowedUnits'], // <-- include allowedUnits
       raw: true,
     });
     // Create a map for quick lookup
     const inventoryMap = {};
     inventories.forEach(inv => {
-      inventoryMap[inv.id] = { itemName: inv.itemName, unit: inv.unit }; // <-- store both
+      inventoryMap[inv.id] = { itemName: inv.itemName, allowedUnits: inv.allowedUnits };
     });
 
     const items = await Recipe.findAll({
       where: { businessId },
-      attributes: ['itemId', 'itemName', 'unitCost', 'ingredients', 'ingredientsQuantity'],
+      attributes: ['itemId', 'itemName', 'unitCost', 'ingredients', 'ingredientsQuantity', 'ingredientsUnit'],
     });
 
     const recipes = items.map((item) => {
@@ -33,8 +33,9 @@ router.get('/', authenticateJWT, async (req, res) => {
         const inv = inventoryMap[ingredientId] || {};
         return {
           title: inv.itemName || 'Unknown',
-          unit: inv.unit || '',
+          unit: (item.ingredientsUnit && item.ingredientsUnit[idx]) || '',
           quantity: item.ingredientsQuantity?.[idx] || '',
+          allowedUnits: inv.allowedUnits || [],
         };
       });
 
@@ -55,9 +56,9 @@ router.get('/', authenticateJWT, async (req, res) => {
 
 router.post('/', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
-  const { title, unitCost, ingredients, ingredientsQuantity} = req.body;
+  const { title, unitCost, ingredients, ingredientsQuantity, ingredientsUnit } = req.body;
 
-  if (!businessId || !title || !ingredients) {
+  if (!businessId || !title || !ingredients || !ingredientsUnit) {
     return res.status(400).json({ error: 'Missing data' });
   }
 
@@ -68,6 +69,7 @@ router.post('/', authenticateJWT, async (req, res) => {
       unitCost,
       ingredients,
       ingredientsQuantity,
+      ingredientsUnit,
     });
 
     res.status(201).json({
@@ -86,9 +88,9 @@ router.post('/', authenticateJWT, async (req, res) => {
 router.put('/:id', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
   const { id } = req.params;
-  const { title, unitCost, ingredients, ingredientsQuantity } = req.body;
+  const { title, unitCost, ingredients, ingredientsQuantity, ingredientsUnit } = req.body;
 
-  if (!businessId || !id || !title || !ingredients) {
+  if (!businessId || !id || !title || !ingredients || !ingredientsUnit) {
     return res.status(400).json({ error: 'Missing data' });
   }
 
@@ -105,6 +107,7 @@ router.put('/:id', authenticateJWT, async (req, res) => {
     item.unitCost = unitCost;
     item.ingredients = ingredients;
     item.ingredientsQuantity = ingredientsQuantity;
+    item.ingredientsUnit = ingredientsUnit;
 
     await item.save();
 

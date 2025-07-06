@@ -44,6 +44,12 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       defaultValue: [],
     },
+    // Unit for each ingredient (1-to-1 index with `ingredients`)
+    ingredientsUnit: {
+      type: DataTypes.ARRAY(DataTypes.STRING),
+      allowNull: true,
+      defaultValue: [],
+    },
     createdAt: {
       allowNull: false,
       type: DataTypes.DATE,

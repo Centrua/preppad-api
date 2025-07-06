@@ -9,7 +9,7 @@ const CATALOG_URL = 'https://connect.squareupsandbox.com/v2/catalog/list?types=I
 const INVENTORY_URL = 'https://connect.squareupsandbox.com/v2/inventory/batch-retrieve-counts';
 
 // Add this helper function near the top of your file
-function convertToBaseUnit(amount, fromUnit, toUnit) {
+function convertToBaseUnit(amount, fromUnit, toUnit, ingredientName = '', conversionRate = null) {
   // Conversion rates to "Teaspoons" as the smallest common denominator
   const toTeaspoons = {
     'Teaspoons': 1,
@@ -21,8 +21,46 @@ function convertToBaseUnit(amount, fromUnit, toUnit) {
     'Gallons': 768,
     'Dry Ounces': 6, // Approximate for water
     'Count': 1,
-    'Slices': 1,
+    'Slices': 1, // Default, but see below for special handling
+    'Whole/Package': 20, // Default: 1 Whole/Package = 20 Slices
   };
+
+  // Use conversionRate from DB if provided and converting between Slices and Whole/Package
+  if (
+    conversionRate &&
+    ((fromUnit === 'Slices' && toUnit === 'Whole/Package') || (fromUnit === 'Whole/Package' && toUnit === 'Slices'))
+  ) {
+    if (fromUnit === 'Slices' && toUnit === 'Whole/Package') {
+      return amount / conversionRate;
+    }
+    if (fromUnit === 'Whole/Package' && toUnit === 'Slices') {
+      return amount * conversionRate;
+    }
+  }
+
+  // Special case: Cheese - 16 slices = 1 Whole/Package
+  if ((fromUnit === 'Slices' && toUnit === 'Whole/Package') && ingredientName && ingredientName.toLowerCase().includes('cheese')) {
+    return amount / 16;
+  }
+  if ((fromUnit === 'Whole/Package' && toUnit === 'Slices') && ingredientName && ingredientName.toLowerCase().includes('cheese')) {
+    return amount * 16;
+  }
+
+  // Special case: Bread - 20 slices = 1 Whole/Package
+  if ((fromUnit === 'Slices' && toUnit === 'Whole/Package') && ingredientName && ingredientName.toLowerCase().includes('bread')) {
+    return amount / 20;
+  }
+  if ((fromUnit === 'Whole/Package' && toUnit === 'Slices') && ingredientName && ingredientName.toLowerCase().includes('bread')) {
+    return amount * 20;
+  }
+
+  // General case: 20 slices = 1 Whole/Package
+  if ((fromUnit === 'Slices' && toUnit === 'Whole/Package')) {
+    return amount / 20;
+  }
+  if ((fromUnit === 'Whole/Package' && toUnit === 'Slices')) {
+    return amount * 20;
+  }
 
   if (fromUnit === toUnit) return amount;
 
@@ -257,9 +295,16 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
             const totalQtyUsedRaw = ingredientQtyUsedRaw * itemQuantityOrdered;
 
             // Convert recipe unit to base unit for subtraction
-            const recipeUnit = dbItem.unit || ingredient.unit; // fallback if needed
+            const recipeUnit = dbItem.ingredientsUnit && dbItem.ingredientsUnit[i] ? dbItem.ingredientsUnit[i] : (ingredient.baseUnit || ingredient.unit);
             const baseUnit = ingredient.baseUnit || ingredient.unit;
-            let ingredientQtyUsed = convertToBaseUnit(totalQtyUsedRaw, recipeUnit, baseUnit);
+            // Pass conversionRate from inventory to conversion function
+            let ingredientQtyUsed = convertToBaseUnit(
+              totalQtyUsedRaw,
+              recipeUnit,
+              baseUnit,
+              ingredient.itemName || '',
+              ingredient.conversionRate || null
+            );
 
             // For shopping list, round up to the next whole number (can't buy a fraction)
             const ingredientQtyUsedWhole = Math.ceil(ingredientQtyUsed);
@@ -268,10 +313,10 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
             const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
             await ingredient.update({ quantityInStock: newQuantity });
 
-            // Only add to shopping list if we've hit or gone below the threshold
-            if (newQuantity <= ingredient.threshold) {
+            // Only add to shopping list if quantity in stock is less than max
+            if (newQuantity < ingredient.max) {
               const idx = currentItemIds.indexOf(ingredientId);
-              const needed = (ingredient.max || ingredient.threshold) - newQuantity;
+              const needed = ingredient.max - newQuantity;
               if (idx === -1) {
                 // Not in shopping list: add enough to restock to max (rounded up)
                 if (needed > 0) {
@@ -280,7 +325,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
                 }
               } else {
                 // Already in shopping list
-                if (currentQuantities[idx] >= (ingredient.max || ingredient.threshold)) {
+                if (currentQuantities[idx] >= ingredient.max) {
                   // If already at max, just add the new ingredientQtyUsedWhole
                   currentQuantities[idx] += ingredientQtyUsedWhole;
                 } else {
