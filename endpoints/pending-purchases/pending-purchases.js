@@ -208,4 +208,24 @@ router.post('/:id/update-inventory', authenticateJWT, async (req, res) => {
   }
 });
 
+//  This is for a pull request test........
+//  Test.
+
+router.delete('/:id/update-pending-purchases', authenticateJWT, async (req, res) => {
+  const { id } = req.params;
+  const businessId = req.user.businessId;
+
+  try {
+    const purchase = await PendingPurchase.findOne({ where: { id, businessId } });
+    if (!purchase) {
+      return res.status(404).json({ error: 'Purchase not found' });
+    }
+    await purchase.destroy();
+    res.json({ message: 'Purchase deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting purchase:', err);
+    res.status(500).json({ error: 'Failed to delete purchase' });
+  }
+});
+
 module.exports = { pendingPurchases: router };
