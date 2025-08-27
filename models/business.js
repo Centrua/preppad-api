@@ -1,7 +1,6 @@
 'use strict';
-const {
-  Model
-} = require('sequelize');
+const { Model } = require('sequelize');
+
 module.exports = (sequelize, DataTypes) => {
   class Business extends Model {
     /**
@@ -14,7 +13,23 @@ module.exports = (sequelize, DataTypes) => {
     }
   }
   Business.init({
-    name: DataTypes.STRING
+    name: DataTypes.STRING,
+    squareAccessToken: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+    squareRefreshToken: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+    squareTokenExpiresAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+    squareMerchantId: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
   }, {
     sequelize,
     modelName: 'Business',

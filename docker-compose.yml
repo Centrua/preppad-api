@@ -8,12 +8,18 @@ services:
       dockerfile: Dockerfile
     ports:
       - "5000:5000"
+    volumes:
+      - ./:/app
+      - ./node_modules:/app/node_modules
     environment:
       - DB_HOST=postgres
       - DB_USER=myuser
       - DB_PASSWORD=mypassword
       - DB_NAME=mydb
       - JWT_SECRET=${JWT_SECRET}
+      - SQUARE_APP_ID=${SQUARE_APP_ID}
+      - SQUARE_CLIENT_SECRET=${SQUARE_CLIENT_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     depends_on:
       - postgres
     networks:
