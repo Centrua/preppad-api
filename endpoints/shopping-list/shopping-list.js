@@ -183,5 +183,31 @@ router.post('/:id/shopping-list', authenticateJWT, async (req, res) => {
   }
 });
 
+// DELETE an item from the base shopping list
+router.delete('/:itemId', authenticateJWT, async (req, res) => {
+  const { itemId } = req.params;
+  const businessId = req.user.businessId;
+
+  if (!businessId) {
+    return res.status(400).json({ error: 'Business ID missing from token' });
+  }
+
+  try {
+    const shoppingList = await ShoppingList.findOne({ where: { businessId } });
+
+    if (!shoppingList) {
+      return res.status(404).json({ error: 'Shopping list not found' });
+    }
+
+    const updatedItems = shoppingList.items.filter(item => item.id !== parseInt(itemId, 10));
+
+    await shoppingList.update({ items: updatedItems });
+
+    res.json({ message: 'Item deleted from shopping list', items: updatedItems });
+  } catch (error) {
+    console.error('Error deleting item from shopping list:', error);
+    res.status(500).json({ error: 'Failed to delete item from shopping list' });
+  }
+});
 
 module.exports = { shoppingList: router };
