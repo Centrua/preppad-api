@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { Recipe, PendingPurchase } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
+const { Op, fn, col, Sequelize } = require('sequelize');
 
 router.get('/', authenticateJWT, async (req, res) => {
   try {
@@ -225,6 +226,49 @@ router.delete('/:id/update-pending-purchases', authenticateJWT, async (req, res)
   } catch (err) {
     console.error('Error deleting purchase:', err);
     res.status(500).json({ error: 'Failed to delete purchase' });
+  }
+});
+
+// Calculate the total cost of completed purchases within a specific time period
+router.get('/total-cost', authenticateJWT, async (req, res) => {
+  const { startDate, endDate } = req.query;
+  const businessId = req.user.businessId;
+
+  if (!businessId) {
+    return res.status(400).json({ error: 'Business ID missing from user token' });
+  }
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'Start date and end date are required' });
+  }
+
+  try {
+    const totalCost = await PendingPurchase.sum('totalPrice', {
+      where: {
+        businessId,
+        status: 'completed',
+        totalPrice: {
+          [Op.ne]: null,
+        },
+        [Op.and]: [
+          Sequelize.where(
+            Sequelize.fn('DATE', Sequelize.col('updatedAt')),
+            '>=',
+            Sequelize.fn('DATE', startDate)
+          ),
+          Sequelize.where(
+            Sequelize.fn('DATE', Sequelize.col('updatedAt')),
+            '<=',
+            Sequelize.fn('DATE', endDate)
+          ),
+        ],
+      },
+    });
+
+    res.json({ totalCost });
+  } catch (error) {
+    console.error('Error calculating total cost:', error);
+    res.status(500).json({ error: 'Failed to calculate total cost' });
   }
 });
 
