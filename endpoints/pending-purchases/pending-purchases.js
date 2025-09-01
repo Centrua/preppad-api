@@ -209,9 +209,6 @@ router.post('/:id/update-inventory', authenticateJWT, async (req, res) => {
   }
 });
 
-//  This is for a pull request test........
-//  Test.
-
 router.delete('/:id/update-pending-purchases', authenticateJWT, async (req, res) => {
   const { id } = req.params;
   const businessId = req.user.businessId;
