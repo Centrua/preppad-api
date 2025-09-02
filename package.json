@@ -1,9 +1,9 @@
 {
   "name": "express-backend",
   "version": "1.0.0",
-  "main": "api/index.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node ./api/index.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
