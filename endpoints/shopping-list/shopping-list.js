@@ -198,12 +198,21 @@ router.delete('/:itemId', authenticateJWT, async (req, res) => {
     if (!shoppingList) {
       return res.status(404).json({ error: 'Shopping list not found' });
     }
+    const existingIdx = shoppingList.itemIds.findIndex(id => Number(id) === Number(itemId));
 
-    const updatedItems = shoppingList.items.filter(item => item.id !== parseInt(itemId, 10));
+    if (existingIdx !== -1) {
+      console.log(`Item ID found at index ${existingIdx} in itemIds array`);
+    } else {
+      console.log('Item ID not found in itemIds array');
+    }
 
-    await shoppingList.update({ items: updatedItems });
 
-    res.json({ message: 'Item deleted from shopping list', items: updatedItems });
+    const updatedQuantities = shoppingList.quantities.filter((_, idx) => idx !== existingIdx);
+    const updatedItemIds = shoppingList.itemIds.filter(id => Number(id) !== Number(itemId));
+
+    await shoppingList.update({ itemIds: updatedItemIds, quantities: updatedQuantities });
+
+    res.json({ message: 'Item deleted from shopping list', items: updatedItemIds, quantities: updatedQuantities });
   } catch (error) {
     console.error('Error deleting item from shopping list:', error);
     res.status(500).json({ error: 'Failed to delete item from shopping list' });
