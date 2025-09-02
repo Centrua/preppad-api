@@ -2,8 +2,6 @@ const express = require('express');
 const router = express.Router();
 const { Recipe, Business, ProcessedEvent, ShoppingList, Inventory } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
-const { OpenAI } = require('openai');
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const CATALOG_URL = 'https://connect.squareupsandbox.com/v2/catalog/list?types=ITEM';
 const INVENTORY_URL = 'https://connect.squareupsandbox.com/v2/inventory/batch-retrieve-counts';
