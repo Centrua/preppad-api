@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { Recipe, PendingPurchase } = require('../../models');
+const { Recipe, PendingPurchase, ShoppingList } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
 const { Op, fn, col, Sequelize } = require('sequelize');
 
@@ -144,7 +144,6 @@ router.post('/:id/diff-to-shopping-list', authenticateJWT, async (req, res) => {
     await purchase.update({ quantities: confirmedQuantities });
 
     // Use the ShoppingList PUT endpoint logic to add/update items
-    const { ShoppingList } = require('../../models');
     let shoppingList = await ShoppingList.findOne({ where: { businessId } });
     if (!shoppingList) {
       shoppingList = await ShoppingList.create({
@@ -266,6 +265,75 @@ router.get('/total-cost', authenticateJWT, async (req, res) => {
   } catch (error) {
     console.error('Error calculating total cost:', error);
     res.status(500).json({ error: 'Failed to calculate total cost' });
+  }
+});
+
+// POST items from a specific pending purchase to the shopping list
+router.post('/add-to-shopping-list', authenticateJWT, async (req, res) => {
+  const { pendingPurchaseId } = req.body;
+  const businessId = req.user.businessId;
+
+  if (!businessId) {
+    return res.status(400).json({ error: 'Business ID missing from token' });
+  }
+
+  if (!pendingPurchaseId) {
+    return res.status(400).json({ error: 'Pending purchase ID is required' });
+  }
+
+  try {
+    // Fetch the specific pending purchase
+    const pendingPurchase = await PendingPurchase.findOne({
+      where: { id: pendingPurchaseId, businessId, status: 'pending' },
+    });
+
+    if (!pendingPurchase) {
+      return res.status(404).json({ error: 'Pending purchase not found' });
+    }
+
+    // Extract itemIds and quantities from the pending purchase
+    const itemsToAdd = pendingPurchase.itemIds.reduce((acc, itemId, index) => {
+      acc[itemId] = (acc[itemId] || 0) + pendingPurchase.quantities[index];
+      return acc;
+    }, {});
+
+    // Fetch the shopping list for the business
+    const shoppingList = await ShoppingList.findOne({ where: { businessId } });
+
+    if (!shoppingList) {
+      return res.status(404).json({ error: 'Shopping list not found' });
+    }
+
+    const updatedItemIds = [...shoppingList.itemIds];
+    const updatedQuantities = [...shoppingList.quantities];
+
+    // Add items to the shopping list
+    Object.entries(itemsToAdd).forEach(([itemId, quantity]) => {
+      const existingIdx = updatedItemIds.findIndex(id => id === parseInt(itemId, 10));
+      if (existingIdx !== -1) {
+        updatedQuantities[existingIdx] += quantity;
+      } else {
+        updatedItemIds.push(parseInt(itemId, 10));
+        updatedQuantities.push(quantity);
+      }
+    });
+
+    // Update the shopping list in the database
+    await shoppingList.update({
+      itemIds: updatedItemIds,
+      quantities: updatedQuantities,
+    });
+
+    res.json({
+      message: 'Items from the pending purchase added to shopping list',
+      shoppingList: {
+        itemIds: updatedItemIds,
+        quantities: updatedQuantities,
+      },
+    });
+  } catch (error) {
+    console.error('Error adding items to shopping list:', error);
+    res.status(500).json({ error: 'Failed to add items to shopping list' });
   }
 });
 
