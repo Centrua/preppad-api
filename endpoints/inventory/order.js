@@ -215,10 +215,15 @@ async function getOrder(orderId, accessToken) {
 // Webhook handler
 router.post('/webhook/order-updated', express.json(), async (req, res) => {
   const event = req.body;
+
+  // Send a 200 response to Square immediately
+  res.status(200).send('OK');
+
   const orderUpdated = event.data?.object?.order_updated;
 
   if (!event || event.type !== 'order.updated' || !orderUpdated?.order_id) {
-    return res.status(400).send('Invalid payload');
+    console.error('Invalid payload received');
+    return; // Exit early since response is already sent
   }
 
   const orderId = orderUpdated.order_id;
@@ -228,129 +233,129 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
     // Lookup business by Square merchant ID
     const business = await Business.findOne({ where: { squareMerchantId: merchantId } });
     if (!business || !business.squareAccessToken) {
-      return res.status(404).send('Business not found or missing access token');
+      console.error('Business not found or missing access token');
+      return;
     }
 
     // Skip if already processed
     const existing = await ProcessedEvent.findByPk(orderId);
     if (existing) {
       console.log('Duplicate webhook ignored:', orderId);
-      return res.status(200).send('Already processed');
+      return;
     }
 
-    // Only process if order is completed
-    if (orderUpdated.state === 'COMPLETED') {
-      await ProcessedEvent.create({ orderId });
-      const fullOrder = await getOrder(orderId, business.squareAccessToken);
-      // Mark order as processed
-      const businessId = business.id;
+    // Process the order (your logic here)
+    console.log('Processing order:', orderId);
+    // Mark order as processed
+    await ProcessedEvent.create({ orderId });
+    const fullOrder = await getOrder(orderId, business.squareAccessToken);
+    // Mark order as processed
+    const businessId = business.id;
 
-      for (const item of fullOrder.line_items || []) {
-        const itemName = item.name;
+    for (const item of fullOrder.line_items || []) {
+      const itemName = item.name;
 
-        // Find item in your DB by name and businessId
-        const dbItem = await Recipe.findOne({
-          where: {
-            itemName: itemName,
-            businessId: businessId,
-          },
+      // Find item in your DB by name and businessId
+      const dbItem = await Recipe.findOne({
+        where: {
+          itemName: itemName,
+          businessId: businessId,
+        },
+      });
+
+      if (!dbItem) {
+        console.warn(`Item not found in DB for business ${businessId}: ${itemName}`);
+        continue;
+      }
+
+      // Get or create the shopping list for this business
+      let shoppingList = await ShoppingList.findOne({ where: { businessId } });
+      if (!shoppingList) {
+        shoppingList = await ShoppingList.create({
+          businessId,
+          itemIds: [],
+          quantities: [],
         });
+      }
 
-        if (!dbItem) {
-          console.warn(`Item not found in DB for business ${businessId}: ${itemName}`);
-          continue;
-        }
+      // Convert to mutable arrays for easier updates
+      let currentItemIds = Array.isArray(shoppingList.itemIds) ? [...shoppingList.itemIds] : [];
+      let currentQuantities = Array.isArray(shoppingList.quantities) ? [...shoppingList.quantities] : [];
 
-        // Get or create the shopping list for this business
-        let shoppingList = await ShoppingList.findOne({ where: { businessId } });
-        if (!shoppingList) {
-          shoppingList = await ShoppingList.create({
-            businessId,
-            itemIds: [],
-            quantities: [],
+      // For each ingredient in the recipe
+      if (dbItem.ingredients && dbItem.ingredients.length > 0) {
+        // Get the quantity of this item ordered from Square (default to 1 if missing)
+        const itemQuantityOrdered = Number(item.quantity) || 1;
+        for (let i = 0; i < dbItem.ingredients.length; i++) {
+          const ingredientId = dbItem.ingredients[i];
+          const ingredientQtyUsedRaw = dbItem.ingredientsQuantity?.[i] || 0;
+          const ingredient = await Inventory.findOne({
+            where: {
+              id: ingredientId,
+              businessId: businessId,
+            },
           });
-        }
 
-        // Convert to mutable arrays for easier updates
-        let currentItemIds = Array.isArray(shoppingList.itemIds) ? [...shoppingList.itemIds] : [];
-        let currentQuantities = Array.isArray(shoppingList.quantities) ? [...shoppingList.quantities] : [];
+          if (!ingredient) continue;
 
-        // For each ingredient in the recipe
-        if (dbItem.ingredients && dbItem.ingredients.length > 0) {
-          // Get the quantity of this item ordered from Square (default to 1 if missing)
-          const itemQuantityOrdered = Number(item.quantity) || 1;
-          for (let i = 0; i < dbItem.ingredients.length; i++) {
-            const ingredientId = dbItem.ingredients[i];
-            const ingredientQtyUsedRaw = dbItem.ingredientsQuantity?.[i] || 0;
-            const ingredient = await Inventory.findOne({
-              where: {
-                id: ingredientId,
-                businessId: businessId,
-              },
-            });
+          // Multiply by the quantity ordered from Square
+          const totalQtyUsedRaw = ingredientQtyUsedRaw * itemQuantityOrdered;
 
-            if (!ingredient) continue;
+          // Convert recipe unit to base unit for subtraction
+          const recipeUnit = dbItem.ingredientsUnit && dbItem.ingredientsUnit[i] ? dbItem.ingredientsUnit[i] : (ingredient.baseUnit || ingredient.unit);
+          const baseUnit = ingredient.baseUnit || ingredient.unit;
+          // Pass conversionRate from inventory to conversion function
+          let ingredientQtyUsed = convertToBaseUnit(
+            totalQtyUsedRaw,
+            recipeUnit,
+            baseUnit,
+            ingredient.itemName || '',
+            ingredient.conversionRate || null
+          );
 
-            // Multiply by the quantity ordered from Square
-            const totalQtyUsedRaw = ingredientQtyUsedRaw * itemQuantityOrdered;
+          // For shopping list, round up to the next whole number (can't buy a fraction)
+          const ingredientQtyUsedWhole = Math.ceil(ingredientQtyUsed);
 
-            // Convert recipe unit to base unit for subtraction
-            const recipeUnit = dbItem.ingredientsUnit && dbItem.ingredientsUnit[i] ? dbItem.ingredientsUnit[i] : (ingredient.baseUnit || ingredient.unit);
-            const baseUnit = ingredient.baseUnit || ingredient.unit;
-            // Pass conversionRate from inventory to conversion function
-            let ingredientQtyUsed = convertToBaseUnit(
-              totalQtyUsedRaw,
-              recipeUnit,
-              baseUnit,
-              ingredient.itemName || '',
-              ingredient.conversionRate || null
-            );
+          // Subtract the used quantity (in base unit)
+          const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
+          await ingredient.update({ quantityInStock: newQuantity });
 
-            // For shopping list, round up to the next whole number (can't buy a fraction)
-            const ingredientQtyUsedWhole = Math.ceil(ingredientQtyUsed);
-
-            // Subtract the used quantity (in base unit)
-            const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
-            await ingredient.update({ quantityInStock: newQuantity });
-
-            // Only add to shopping list if quantity in stock is less than max
-            if (newQuantity < ingredient.max) {
-              const idx = currentItemIds.indexOf(ingredientId);
-              const needed = ingredient.max - newQuantity;
-              if (idx === -1) {
-                // Not in shopping list: add enough to restock to max (rounded up)
-                if (needed > 0) {
-                  currentItemIds.push(ingredientId);
-                  currentQuantities.push(Math.ceil(needed));
-                }
+          // Only add to shopping list if quantity in stock is less than max
+          if (newQuantity < ingredient.max) {
+            const idx = currentItemIds.indexOf(ingredientId);
+            const needed = ingredient.max - newQuantity;
+            if (idx === -1) {
+              // Not in shopping list: add enough to restock to max (rounded up)
+              if (needed > 0) {
+                currentItemIds.push(ingredientId);
+                currentQuantities.push(Math.ceil(needed));
+              }
+            } else {
+              // Already in shopping list
+              if (currentQuantities[idx] >= ingredient.max) {
+                // If already at max, just add the new ingredientQtyUsedWhole
+                currentQuantities[idx] += ingredientQtyUsedWhole;
               } else {
-                // Already in shopping list
-                if (currentQuantities[idx] >= ingredient.max) {
-                  // If already at max, just add the new ingredientQtyUsedWhole
-                  currentQuantities[idx] += ingredientQtyUsedWhole;
-                } else {
-                  // Otherwise, set to needed to restock to max
-                  if (needed > 0) {
-                    currentQuantities[idx] = Math.ceil(needed);
-                  }
+                // Otherwise, set to needed to restock to max
+                if (needed > 0) {
+                  currentQuantities[idx] = Math.ceil(needed);
                 }
               }
             }
           }
         }
-
-        // Update the shopping list in the DB
-        await shoppingList.update({
-          itemIds: currentItemIds,
-          quantities: currentQuantities,
-        });
       }
 
-      res.status(200).json({ received: true });
+      // Update the shopping list in the DB
+      await shoppingList.update({
+        itemIds: currentItemIds,
+        quantities: currentQuantities,
+      });
     }
+
+    console.log('✅ Order processed:', orderId);
   } catch (err) {
     console.error('Error processing Square order webhook:', err);
-    res.status(500).send('Failed to process order');
   }
 });
 
