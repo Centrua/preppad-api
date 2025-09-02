@@ -11,15 +11,15 @@ app.use(cors({
 app.use(express.json());
 
 const cron = require('node-cron');
-const { refreshSquareTokenIfExpiringSoon } = require('../crons/refreshSquareToken');
-const { square } = require('../endpoints/oauth/square');
-const { user } = require('../endpoints/users/user');
-const { business } = require('../endpoints/businesses/business');
-const { shoppingList } = require('../endpoints/shopping-list/shopping-list');
-const { recipes } = require('../endpoints/recipes/recipes');
-const { pendingPurchases } = require('../endpoints/pending-purchases/pending-purchases');
-const { order } = require('../endpoints/inventory/order');
-const { ingredients } = require('../endpoints/ingredients/ingredients');
+const { refreshSquareTokenIfExpiringSoon } = require('./crons/refreshSquareToken');
+const { square } = require('./endpoints/oauth/square');
+const { user } = require('./endpoints/users/user');
+const { business } = require('./endpoints/businesses/business');
+const { shoppingList } = require('./endpoints/shopping-list/shopping-list');
+const { recipes } = require('./endpoints/recipes/recipes');
+const { pendingPurchases } = require('./endpoints/pending-purchases/pending-purchases');
+const { order } = require('./endpoints/inventory/order');
+const { ingredients } = require('./endpoints/ingredients/ingredients');
 
 app.use('/oauth', square);
 app.use('/users', user);
@@ -65,6 +65,10 @@ cron.schedule('0 4 * * *', async () => {
     console.error('❌ Error cleaning up expired events:', error);
   }
 });
+
+app.get('/', (req, res) => {
+    res.send("Express App Responded");
+})
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
