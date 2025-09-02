@@ -13,5 +13,4 @@ COPY . .
 # Expose server port
 EXPOSE 5000
 
-# Run migrations before starting the app
-CMD npx sequelize-cli db:migrate && node index.js
+CMD node index.js
