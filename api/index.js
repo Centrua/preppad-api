@@ -66,6 +66,10 @@ cron.schedule('0 4 * * *', async () => {
   }
 });
 
+app.get('/', (req, res) => {
+    res.send("Express App Responded");
+})
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
