@@ -169,4 +169,33 @@ router.get('/understocked', authenticateJWT, async (req, res) => {
   }
 });
 
+// GET itemId by itemName
+router.get('/item-id', authenticateJWT, async (req, res) => {
+  const { itemName } = req.query;
+  const businessId = req.user.businessId;
+
+  if (!businessId) {
+    return res.status(400).json({ error: 'Business ID missing from token' });
+  }
+
+  if (!itemName) {
+    return res.status(400).json({ error: 'Item name is required' });
+  }
+
+  try {
+    const item = await Inventory.findOne({
+      where: { businessId, itemName },
+    });
+
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    res.json({ itemId: item.id });
+  } catch (error) {
+    console.error('Error fetching item by name:', error);
+    res.status(500).json({ error: 'Failed to fetch item by name' });
+  }
+});
+
 module.exports = { ingredients: router };
