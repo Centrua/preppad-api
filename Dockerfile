@@ -7,11 +7,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-# Copy all app code (including Prisma schema)
+# Copy all app code (including Sequelize models/migrations)
 COPY . .
 
 # Expose server port
 EXPOSE 5000
 
-# Start the app
-CMD ["node", "index.js"]
+# Run migrations before starting the app
+CMD npx sequelize-cli db:migrate && node index.js
