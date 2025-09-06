@@ -114,7 +114,6 @@ router.put('/clear', authenticateJWT, async (req, res) => {
 
 // PUT /shopping-list/:id - update shopping list if item's quantity is less than max
 router.post('/:id/shopping-list', authenticateJWT, async (req, res) => {
-  const { id } = req.params;
   const businessId = req.user.businessId;
 
   if (!businessId) {
@@ -183,13 +182,18 @@ router.post('/:id/shopping-list', authenticateJWT, async (req, res) => {
   }
 });
 
-// DELETE an item from the base shopping list
+// DELETE a specific quantity of an item from the base shopping list
 router.delete('/:itemId', authenticateJWT, async (req, res) => {
   const { itemId } = req.params;
+  const { quantity } = req.body;
   const businessId = req.user.businessId;
 
   if (!businessId) {
     return res.status(400).json({ error: 'Business ID missing from token' });
+  }
+
+  if (!quantity || quantity <= 0) {
+    return res.status(400).json({ error: 'A valid quantity is required' });
   }
 
   try {
@@ -198,24 +202,36 @@ router.delete('/:itemId', authenticateJWT, async (req, res) => {
     if (!shoppingList) {
       return res.status(404).json({ error: 'Shopping list not found' });
     }
-    const existingIdx = shoppingList.itemIds.findIndex(id => Number(id) === Number(itemId));
 
-    if (existingIdx !== -1) {
-      console.log(`Item ID found at index ${existingIdx} in itemIds array`);
-    } else {
-      console.log('Item ID not found in itemIds array');
+    // Reduce the quantity or remove the item if quantity becomes zero or less
+    const numericId = Number(itemId);
+    const updatedItemIds = [...shoppingList.itemIds];
+    const updatedQuantities = [...shoppingList.quantities];
+    const existingIdx = updatedItemIds.findIndex(itemId => Number(itemId) === numericId);
+
+    if (existingIdx === -1) {
+      return res.status(404).json({ error: 'Item not found in shopping list' });
     }
 
+    updatedQuantities[existingIdx] -= quantity;
+    if (updatedQuantities[existingIdx] <= 0) {
+      updatedItemIds.splice(existingIdx, 1);
+      updatedQuantities.splice(existingIdx, 1);
+    }
 
-    const updatedQuantities = shoppingList.quantities.filter((_, idx) => idx !== existingIdx);
-    const updatedItemIds = shoppingList.itemIds.filter(id => Number(id) !== Number(itemId));
+    await shoppingList.update({
+      itemIds: updatedItemIds,
+      quantities: updatedQuantities,
+    });
 
-    await shoppingList.update({ itemIds: updatedItemIds, quantities: updatedQuantities });
-
-    res.json({ message: 'Item deleted from shopping list', items: updatedItemIds, quantities: updatedQuantities });
+    res.json({
+      message: 'Quantity updated or item removed from shopping list',
+      items: updatedItemIds,
+      quantities: updatedQuantities,
+    });
   } catch (error) {
-    console.error('Error deleting item from shopping list:', error);
-    res.status(500).json({ error: 'Failed to delete item from shopping list' });
+    console.error('Error updating shopping list:', error);
+    res.status(500).json({ error: 'Failed to update shopping list' });
   }
 });
 

@@ -16,6 +16,10 @@ services:
       - DB_USER=myuser
       - DB_PASSWORD=mypassword
       - DB_NAME=mydb
+      - PORT=${PORT}
+      - DB_DIALECT=${DB_DIALECT}
+      - FRONTEND=${FRONTEND}
+      - CALLBACK_URL=${CALLBACK_URL}
       - JWT_SECRET=${JWT_SECRET}
       - SQUARE_APP_ID=${SQUARE_APP_ID}
       - SQUARE_CLIENT_SECRET=${SQUARE_CLIENT_SECRET}
