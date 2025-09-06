@@ -15,7 +15,7 @@ router.post('/square-callback', async (req, res) => {
   };
 
   try {
-    const response = await fetch(`https://${process.env.SQUARE_URL}/oauth2/token`, {
+    const response = await fetch(`${process.env.SQUARE_URL}/oauth2/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
