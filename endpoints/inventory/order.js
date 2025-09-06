@@ -3,8 +3,8 @@ const router = express.Router();
 const { Recipe, Business, ProcessedEvent, ShoppingList, Inventory } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
 
-const CATALOG_URL = 'https://connect.squareupsandbox.com/v2/catalog/list?types=ITEM';
-const INVENTORY_URL = 'https://connect.squareupsandbox.com/v2/inventory/batch-retrieve-counts';
+const CATALOG_URL = `https://${process.env.SQUARE_URL}/v2/catalog/list?types=ITEM`;
+const INVENTORY_URL = `https://${process.env.SQUARE_URL}/v2/inventory/batch-retrieve-counts`;
 
 // Add this helper function near the top of your file
 function convertToBaseUnit(amount, fromUnit, toUnit, ingredientName = '', conversionRate = null) {
@@ -193,7 +193,7 @@ router.post('/sync', authenticateJWT, async (req, res) => {
 
 // Updated getOrder to take the token
 async function getOrder(orderId, accessToken) {
-  const response = await fetch(`https://connect.squareupsandbox.com/v2/orders/${orderId}`, {
+  const response = await fetch(`https://${process.env.SQUARE_URL}/v2/orders/${orderId}`, {
     method: 'GET',
     headers: {
       'Square-Version': '2023-06-08',
