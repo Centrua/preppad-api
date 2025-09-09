@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const { Op } = require('sequelize');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -22,6 +23,7 @@ const { recipes } = require('./endpoints/recipes/recipes');
 const { pendingPurchases } = require('./endpoints/pending-purchases/pending-purchases');
 const { order } = require('./endpoints/inventory/order');
 const { ingredients } = require('./endpoints/ingredients/ingredients');
+const { ProcessedEvent } = require('./models');
 
 app.use('/oauth', square);
 app.use('/users', user);
@@ -32,27 +34,7 @@ app.use('/recipes', recipes);
 app.use('/pending-purchase', pendingPurchases);
 app.use('/ingredients', ingredients);
 
-cron.schedule('0 4 * * *', async () => {
-  console.log('Running Square token refresh job...');
-  refreshSquareTokenIfExpiringSoon();
-    try {
-    const deleted = await ProcessedEvent.destroy({
-      where: {
-        expiresAt: {
-          [Op.lt]: new Date(),
-        },
-      },
-    });
-
-    console.log(`🧹 Cleaned up ${deleted} expired ProcessedEvents.`);
-  } catch (error) {
-    console.error('❌ Error cleaning up expired events:', error);
-  }
-}, {
-  timezone: 'UTC',
-});
-
-cron.schedule('0 4 * * *', async () => {
+async function cleanUpExpiredProcessedEvents() {
   try {
     const deleted = await ProcessedEvent.destroy({
       where: {
@@ -62,14 +44,22 @@ cron.schedule('0 4 * * *', async () => {
       },
     });
 
-    console.log(`🧹 Cleaned up ${deleted} expired ProcessedEvents.`);
+    console.log(`Cleaned up ${deleted} expired ProcessedEvents.`);
   } catch (error) {
-    console.error('❌ Error cleaning up expired events:', error);
+    console.error('Error cleaning up expired events:', error);
   }
+}
+
+cron.schedule('*0 4 * * *', async () => {
+  console.log('Running Square token refresh job...');
+  refreshSquareTokenIfExpiringSoon();
+  await cleanUpExpiredProcessedEvents();
+}, {
+  timezone: 'UTC',
 });
 
 app.get('/', (req, res) => {
-    res.send("Express App Responded");
+  res.send("Express App Responded");
 })
 
 app.listen(PORT, () => {
