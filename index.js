@@ -50,12 +50,12 @@ async function cleanUpExpiredProcessedEvents() {
   }
 }
 
-cron.schedule('*0 4 * * *', async () => {
+cron.schedule('0 0 * * *', async () => {
   console.log('Running Square token refresh and expired event cleanup job...');
   refreshSquareTokenIfExpiringSoon();
   cleanUpExpiredProcessedEvents();
 }, {
-  timezone: 'UTC',
+  timezone: 'America/Indiana/Indianapolis',
 });
 
 app.get('/', (req, res) => {
