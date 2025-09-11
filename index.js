@@ -51,9 +51,9 @@ async function cleanUpExpiredProcessedEvents() {
 }
 
 cron.schedule('*0 4 * * *', async () => {
-  console.log('Running Square token refresh job...');
+  console.log('Running Square token refresh and expired event cleanup job...');
   refreshSquareTokenIfExpiringSoon();
-  await cleanUpExpiredProcessedEvents();
+  cleanUpExpiredProcessedEvents();
 }, {
   timezone: 'UTC',
 });
