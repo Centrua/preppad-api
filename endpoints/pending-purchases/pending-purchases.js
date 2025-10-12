@@ -52,8 +52,8 @@ router.get('/', authenticateJWT, async (req, res) => {
 
 // Create a new Pending Purchase
 router.post('/', authenticateJWT, async (req, res) => {
-  const { itemIds, quantities, totalPrice, purchaseLocation } = req.body;
-  const businessId = req.user.businessId; // Get businessId from JWT user info
+  const { itemIds, quantities, totalPrice, purchaseLocation, notes } = req.body;
+  const businessId = req.user.businessId;
 
   if (!businessId) {
     return res.status(400).json({ error: 'Business ID missing from user token' });
@@ -70,6 +70,7 @@ router.post('/', authenticateJWT, async (req, res) => {
       quantities,
       totalPrice,
       purchaseLocation,
+      notes,
     });
     res.status(201).json({ message: 'Pending purchase created', data: newPurchase });
   } catch (error) {

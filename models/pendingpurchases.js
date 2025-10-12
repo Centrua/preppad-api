@@ -41,6 +41,14 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: 'pending',
       },
+      purchaseLocation: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      notes: {
+        type: DataTypes.ARRAY(DataTypes.STRING(255)),
+        allowNull: true,
+      },
       createdAt: {
         type: DataTypes.DATE,
         allowNull: false,
@@ -50,10 +58,6 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DATE,
         allowNull: false,
         defaultValue: DataTypes.NOW,
-      },
-      purchaseLocation: {
-        type: DataTypes.STRING,
-        allowNull: true,
       },
     },
     {
