@@ -202,6 +202,7 @@ router.delete('/:itemId', authenticateJWT, async (req, res) => {
     const numericId = Number(itemId);
     const updatedItemIds = [...shoppingList.itemIds];
     const updatedQuantities = [...shoppingList.quantities];
+    const updatedNotes = [...shoppingList.notes];
     const existingIdx = updatedItemIds.findIndex(itemId => Number(itemId) === numericId);
 
     if (existingIdx === -1) {
@@ -212,11 +213,13 @@ router.delete('/:itemId', authenticateJWT, async (req, res) => {
     if (updatedQuantities[existingIdx] <= 0) {
       updatedItemIds.splice(existingIdx, 1);
       updatedQuantities.splice(existingIdx, 1);
+      updatedNotes.splice(existingIdx, 1);
     }
 
     await shoppingList.update({
       itemIds: updatedItemIds,
       quantities: updatedQuantities,
+      notes: updatedNotes,
     });
 
     res.json({
