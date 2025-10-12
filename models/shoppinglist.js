@@ -35,6 +35,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.ARRAY(DataTypes.INTEGER),
         allowNull: false,
       },
+      notes: {
+        type: DataTypes.ARRAY(DataTypes.STRING(255)),
+        allowNull: true,
+      },
       createdAt: {
         type: DataTypes.DATE,
         allowNull: false,

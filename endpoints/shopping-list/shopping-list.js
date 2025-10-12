@@ -115,70 +115,63 @@ router.put('/clear', authenticateJWT, async (req, res) => {
 // PUT /shopping-list/:id - update shopping list if item's quantity is less than max
 router.post('/:id/shopping-list', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
+  const { note, quantity } = req.body;
 
   if (!businessId) {
     return res.status(400).json({ error: 'Business ID missing from user token' });
   }
+
   try {
-    const businessId = req.user.businessId;
     const { id } = req.params;
 
-    if (!businessId) {
-      return res.status(401).json({ error: 'Unauthorized: missing businessId' });
-    }
-
     const inventoryItem = await Inventory.findOne({
-      where: { id, businessId }
+      where: { id, businessId },
     });
 
     if (!inventoryItem) {
       return res.status(404).json({ error: 'Inventory item not found' });
     }
 
-    console.log(`🧾 Checking inventory item: ${inventoryItem.itemName}`);
+    let shoppingList = await ShoppingList.findOne({ where: { businessId } });
 
-    const quantityInStock = Number(inventoryItem.quantityInStock);
-    const max = Number(inventoryItem.max);
-
-    if (quantityInStock < max) {
-      const neededQty = max - quantityInStock;
-
-      let shoppingList = await ShoppingList.findOne({ where: { businessId } });
-
-      if (!shoppingList) {
-        shoppingList = await ShoppingList.create({
-          businessId,
-          itemIds: [],
-          quantities: [],
-        });
-      } else {
-        // Update existing quantities or add new ones
-        const numericId = Number(id);
-        const updatedItemIds = [...shoppingList.itemIds];
-        const updatedQuantities = [...shoppingList.quantities];
-        const existingIdx = updatedItemIds.findIndex(itemId => Number(itemId) === numericId);
-
-        console.log('🧾 Checking inventory id index:', existingIdx);
-
-        if (existingIdx !== -1) {
-          updatedQuantities[existingIdx] = neededQty;
-        } else {
-          updatedItemIds.push(numericId);
-          updatedQuantities.push(neededQty);
-        }
-
-        await shoppingList.update({ itemIds: updatedItemIds, quantities: updatedQuantities });
-
-      }
-    } else {
-      console.log('✅ Inventory is sufficient; no update to shopping list');
+    if (!shoppingList) {
+      shoppingList = await ShoppingList.create({
+        businessId,
+        itemIds: [],
+        quantities: [],
+        notes: [],
+      });
     }
 
-    res.status(200).json({ message: 'Shopping list checked/updated successfully' });
+    const numericId = Number(id);
+    const existingIdx = shoppingList.itemIds.findIndex((itemId) => itemId === numericId);
+    const updatedItemIds = [...shoppingList.itemIds];
+    const updatedQuantities = [...shoppingList.quantities];
+    const updatedNotes = shoppingList.notes ? [...shoppingList.notes] : [];
+    console.log("Shopping List: ", shoppingList);
 
-  } catch (err) {
-    console.error('❌ Error updating shopping list:', err);
-    res.status(500).json({ error: 'Failed to update shopping list' });
+    if (existingIdx !== -1) {
+      updatedQuantities[existingIdx] += quantity;
+      updatedNotes[existingIdx] = note;
+    } else {
+      updatedItemIds.push(numericId);
+      updatedQuantities.push(quantity);
+      updatedNotes.push(note);
+    }
+
+    await shoppingList.update({
+      itemIds: updatedItemIds,
+      quantities: updatedQuantities,
+      notes: updatedNotes,
+    });
+
+    res.json({
+      message: 'Item added to shopping list with note',
+      shoppingList,
+    });
+  } catch (error) {
+    console.error('Error adding item to shopping list:', error);
+    res.status(500).json({ error: 'Failed to add item to shopping list' });
   }
 });
 
