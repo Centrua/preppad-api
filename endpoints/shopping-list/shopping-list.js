@@ -152,7 +152,9 @@ router.post('/:id/shopping-list', authenticateJWT, async (req, res) => {
 
     if (existingIdx !== -1) {
       updatedQuantities[existingIdx] += quantity;
-      updatedNotes[existingIdx] = note;
+      if (!updatedNotes[existingIdx]) { // Only overwrite if no existing note
+        updatedNotes[existingIdx] = note;
+      }
     } else {
       updatedItemIds.push(numericId);
       updatedQuantities.push(quantity);
