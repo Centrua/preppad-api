@@ -150,7 +150,9 @@ router.post('/:id/shopping-list', authenticateJWT, async (req, res) => {
     const updatedNotes = shoppingList.notes ? [...shoppingList.notes] : [];
 
     if (existingIdx !== -1) {
-      updatedQuantities[existingIdx] += quantity;
+      if (quantity !== 0 && typeof quantity === 'number') {
+        updatedQuantities[existingIdx] += quantity;
+      }
       if (!updatedNotes[existingIdx]) { // Only overwrite if no existing note
         updatedNotes[existingIdx] = note;
       }
