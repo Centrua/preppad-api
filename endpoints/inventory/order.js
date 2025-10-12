@@ -364,7 +364,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
           }
 
           // Use unit conversion for modifiers as well
-          const modifierUnit = ingredient.unit || ingredient.baseUnit || 'Count';
+          const modifierUnit = ingredient.allowedUnits && ingredient.allowedUnits[0] || ingredient.baseUnit || 'Count';
           const baseUnit = ingredient.baseUnit || ingredient.unit || 'Count';
           const conversionRate = ingredient.conversionRate || null;
           // If the modifier has a unit, use it; otherwise default to ingredient's unit
