@@ -148,7 +148,6 @@ router.post('/:id/shopping-list', authenticateJWT, async (req, res) => {
     const updatedItemIds = [...shoppingList.itemIds];
     const updatedQuantities = [...shoppingList.quantities];
     const updatedNotes = shoppingList.notes ? [...shoppingList.notes] : [];
-    console.log("Shopping List: ", shoppingList);
 
     if (existingIdx !== -1) {
       updatedQuantities[existingIdx] += quantity;
