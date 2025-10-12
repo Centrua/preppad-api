@@ -344,6 +344,65 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         }
       }
 
+      // If the item has modifiers, treat each modifier as an ingredient
+      if (Array.isArray(item.modifiers) && item.modifiers.length > 0) {
+        for (const modifier of item.modifiers) {
+          const ingredientName = modifier.name;
+          const ingredientQuantity = Number(modifier.quantity) || 1;
+
+          // Find the ingredient in Inventory by name and businessId
+          const ingredient = await Inventory.findOne({
+            where: {
+              itemName: ingredientName,
+              businessId: businessId,
+            },
+          });
+
+          if (!ingredient) {
+            console.warn(`Modifier ingredient not found in DB for business ${businessId}: ${ingredientName}`);
+            continue;
+          }
+
+          // Use unit conversion for modifiers as well
+          const modifierUnit = ingredient.unit || ingredient.baseUnit || 'Count';
+          const baseUnit = ingredient.baseUnit || ingredient.unit || 'Count';
+          const conversionRate = ingredient.conversionRate || null;
+          // If the modifier has a unit, use it; otherwise default to ingredient's unit
+          const fromUnit = modifier.unit || modifierUnit;
+          const ingredientQtyUsed = convertToBaseUnit(
+            ingredientQuantity,
+            fromUnit,
+            baseUnit,
+            ingredient.itemName || '',
+            conversionRate
+          );
+
+          // Subtract the used quantity (in base unit)
+          const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
+          await ingredient.update({ quantityInStock: newQuantity });
+
+          // Only add to shopping list if quantity in stock is less than max
+          if (newQuantity < ingredient.max) {
+            const idx = currentItemIds.indexOf(ingredient.id);
+            const needed = ingredient.max - newQuantity;
+            if (idx === -1) {
+              if (needed > 0) {
+                currentItemIds.push(ingredient.id);
+                currentQuantities.push(Math.ceil(needed));
+              }
+            } else {
+              if (currentQuantities[idx] >= ingredient.max) {
+                currentQuantities[idx] += Math.ceil(ingredientQtyUsed);
+              } else {
+                if (needed > 0) {
+                  currentQuantities[idx] = Math.ceil(needed);
+                }
+              }
+            }
+          }
+        }
+      }
+
       // Update the shopping list in the DB
       await shoppingList.update({
         itemIds: currentItemIds,
