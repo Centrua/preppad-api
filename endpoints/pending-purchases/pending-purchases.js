@@ -52,7 +52,7 @@ router.get('/', authenticateJWT, async (req, res) => {
 
 // Create a new Pending Purchase
 router.post('/', authenticateJWT, async (req, res) => {
-  const { itemIds, quantities, cheapestUnitPrice, vendor, totalPrice, purchaseLocation } = req.body;
+  const { itemIds, quantities,totalPrice, purchaseLocation } = req.body;
   const businessId = req.user.businessId; // Get businessId from JWT user info
 
   if (!businessId) {
@@ -68,8 +68,6 @@ router.post('/', authenticateJWT, async (req, res) => {
       businessId,
       itemIds,
       quantities,
-      cheapestUnitPrice,
-      vendor,
       totalPrice,
       purchaseLocation,
     });
