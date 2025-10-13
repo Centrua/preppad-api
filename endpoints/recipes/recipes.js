@@ -57,16 +57,16 @@ router.get('/', authenticateJWT, async (req, res) => {
 
 router.post('/', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
-  const { title, unitCost, ingredients, ingredientsQuantity, ingredientsUnit, categories, variations } = req.body;
+  const { itemName, unitCost, ingredients, ingredientsQuantity, ingredientsUnit, categories, variations } = req.body;
 
-  if (!businessId || !title || !ingredients || !ingredientsUnit) {
+  if (!businessId || !itemName || !ingredients || !ingredientsUnit) {
     return res.status(400).json({ error: 'Missing data' });
   }
 
   try {
     const item = await Recipe.create({
       businessId,
-      itemName: title,
+      itemName,
       unitCost,
       ingredients,
       ingredientsQuantity,
@@ -77,7 +77,7 @@ router.post('/', authenticateJWT, async (req, res) => {
 
     res.status(201).json({
       id: item.itemId,
-      title: item.itemName,
+      itemName: item.itemName,
       unitCost: item.unitCost,
       ingredients: item.ingredients,
       ingredientsQuantity: item.ingredientsQuantity,
