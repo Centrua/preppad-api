@@ -252,14 +252,31 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
 
     for (const item of fullOrder.line_items || []) {
       const itemName = item.name;
-
-      // Find item in your DB by name and businessId
-      const dbItem = await Recipe.findOne({
+      let dbItem = await Recipe.findOne({
         where: {
           itemName: itemName,
           businessId: businessId,
         },
       });
+
+      // If item.variation_name exists, find the recipe whose variations array contains a recipe with that name
+      if (item.variation_name) {
+        // Get all recipes for this business
+        const allRecipes = await Recipe.findAll({ where: { businessId } });
+        // Find the recipe whose variations array references a recipe with itemName === item.variation_name
+        for (const recipe of allRecipes) {
+          if (Array.isArray(recipe.variations) && recipe.variations.length > 0) {
+            // Find the referenced recipe by id and check its name
+            for (const variationId of recipe.variations) {
+              const variationRecipe = allRecipes.find(r => r.itemId === variationId);
+              if (variationRecipe && variationRecipe.itemName === item.variation_name) {
+                dbItem = recipe;
+                break;
+              }
+            }
+          }
+        }
+      }
 
       if (!dbItem) {
         console.warn(`Item not found in DB for business ${businessId}: ${itemName}`);
