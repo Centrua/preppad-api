@@ -25,7 +25,7 @@ router.get('/', authenticateJWT, async (req, res) => {
 
     const items = await Recipe.findAll({
       where: { businessId },
-      attributes: ['itemId', 'itemName', 'unitCost', 'ingredients', 'ingredientsQuantity', 'ingredientsUnit', 'categories'],
+      attributes: ['itemId', 'itemName', 'unitCost', 'ingredients', 'ingredientsQuantity', 'ingredientsUnit', 'categories', 'variations'],
     });
 
     const recipes = items.map((item) => {
@@ -44,6 +44,7 @@ router.get('/', authenticateJWT, async (req, res) => {
         unitCost: item.unitCost,
         ingredients,
         categories: item.categories || [],
+        variations: item.variations || [],
       };
     });
 
@@ -56,7 +57,7 @@ router.get('/', authenticateJWT, async (req, res) => {
 
 router.post('/', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
-  const { title, unitCost, ingredients, ingredientsQuantity, ingredientsUnit, categories } = req.body;
+  const { title, unitCost, ingredients, ingredientsQuantity, ingredientsUnit, categories, variations } = req.body;
 
   if (!businessId || !title || !ingredients || !ingredientsUnit) {
     return res.status(400).json({ error: 'Missing data' });
@@ -71,6 +72,7 @@ router.post('/', authenticateJWT, async (req, res) => {
       ingredientsQuantity,
       ingredientsUnit,
       categories: categories || [],
+      variations: variations || [],
     });
 
     res.status(201).json({
@@ -80,6 +82,7 @@ router.post('/', authenticateJWT, async (req, res) => {
       ingredients: item.ingredients,
       ingredientsQuantity: item.ingredientsQuantity,
       categories: item.categories || [],
+      variations: item.variations || [],
     });
   } catch (err) {
     console.error('Error creating recipe:', err);
@@ -90,9 +93,9 @@ router.post('/', authenticateJWT, async (req, res) => {
 router.put('/:id', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
   const { id } = req.params;
-  const { title, unitCost, ingredients, ingredientsQuantity, ingredientsUnit, categories } = req.body;
+  const updateFields = req.body;
 
-  if (!businessId || !id || !title || !ingredients || !ingredientsUnit) {
+  if (!businessId || !id) {
     return res.status(400).json({ error: 'Missing data' });
   }
 
@@ -105,23 +108,15 @@ router.put('/:id', authenticateJWT, async (req, res) => {
       return res.status(404).json({ error: 'Recipe not found' });
     }
 
-    item.itemName = title;
-    item.unitCost = unitCost;
-    item.ingredients = ingredients;
-    item.ingredientsQuantity = ingredientsQuantity;
-    item.ingredientsUnit = ingredientsUnit;
-    item.categories = categories || [];
+    Object.keys(updateFields).forEach((key) => {
+      if (updateFields[key] !== undefined) {
+        item[key] = updateFields[key];
+      }
+    });
 
     await item.save();
 
-    res.json({
-      id: item.itemId,
-      title: item.itemName,
-      unitCost: item.unitCost,
-      ingredients,
-      ingredientsQuantity,
-      categories: item.categories || [],
-    });
+    res.json(item);
   } catch (err) {
     console.error('Error updating recipe:', err);
     res.status(500).json({ error: 'Internal server error' });
