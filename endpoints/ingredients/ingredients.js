@@ -56,7 +56,7 @@ router.put('/:id', authenticateJWT, async (req, res) => {
   try {
     const businessId = req.user.businessId;
     const { id } = req.params;
-    const { allowedUnits, baseUnit, quantityInStock, max, conversionRate } = req.body;
+    const { itemName, allowedUnits, baseUnit, quantityInStock, max, conversionRate } = req.body;
 
     const inventory = await Inventory.findOne({
       where: {
@@ -70,6 +70,7 @@ router.put('/:id', authenticateJWT, async (req, res) => {
     }
 
     await inventory.update({
+      itemName: itemName !== undefined ? itemName : inventory.itemName,
       allowedUnits: allowedUnits !== undefined ? allowedUnits : inventory.allowedUnits,
       baseUnit: baseUnit !== undefined ? baseUnit : inventory.baseUnit,
       quantityInStock: quantityInStock !== undefined ? quantityInStock : inventory.quantityInStock,
