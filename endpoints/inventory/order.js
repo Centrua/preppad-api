@@ -24,16 +24,17 @@ function convertToBaseUnit(amount, fromUnit, toUnit, ingredientName = '', conver
     'Whole/Package': 20, // Default: 1 Whole/Package = 20 Slices
   };
 
-  // Use conversionRate from DB if provided and converting between Slices and Whole/Package
-  if (
-    conversionRate &&
-    ((fromUnit === 'Slices' && toUnit === 'Whole/Package') || (fromUnit === 'Whole/Package' && toUnit === 'Slices'))
-  ) {
-    if (fromUnit === 'Slices' && toUnit === 'Whole/Package') {
-      return amount / conversionRate;
-    }
-    if (fromUnit === 'Whole/Package' && toUnit === 'Slices') {
+  // Use conversionRate for any conversion to/from Whole/Package if provided
+  if (conversionRate && (fromUnit === 'Whole/Package' || toUnit === 'Whole/Package')) {
+    if (fromUnit === 'Whole/Package' && toUnit !== 'Whole/Package') {
+      // Convert from Whole/Package to another unit
+      // 1 Whole/Package = conversionRate of toUnit
       return amount * conversionRate;
+    }
+    if (fromUnit !== 'Whole/Package' && toUnit === 'Whole/Package') {
+      // Convert from another unit to Whole/Package
+      // conversionRate of fromUnit = 1 Whole/Package
+      return amount / conversionRate;
     }
   }
 
