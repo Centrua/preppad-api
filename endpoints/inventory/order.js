@@ -85,11 +85,13 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         };
       });
 
+      // Store item_data for later use (modifiers)
       return {
         item_id,
         name,
         description,
         variations: formattedVariations,
+        item_data, // keep reference to original item_data
       };
     });
 
@@ -158,8 +160,8 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
 
       // Handle modifiers: store as array of strings in 'modifiers' column
       let modifiersArr = [];
-      if (item_data.modifier_list_data && Array.isArray(item_data.modifier_list_data)) {
-        for (const modList of item_data.modifier_list_data) {
+      if (item.item_data && item.item_data.modifier_list_data && Array.isArray(item.item_data.modifier_list_data)) {
+        for (const modList of item.item_data.modifier_list_data) {
           if (modList.modifiers && Array.isArray(modList.modifiers)) {
             for (const mod of modList.modifiers) {
               if (mod.modifier_data && mod.modifier_data.name) {
