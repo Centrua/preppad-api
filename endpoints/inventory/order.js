@@ -158,8 +158,16 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
 
       // Handle modifiers: store as array of strings in 'modifiers' column
       let modifiersArr = [];
-      if (item.modifiers && Array.isArray(item.modifiers)) {
-        modifiersArr = item.modifiers.map(mod => mod.name || String(mod));
+      if (item_data.modifier_list_data && Array.isArray(item_data.modifier_list_data)) {
+        for (const modList of item_data.modifier_list_data) {
+          if (modList.modifiers && Array.isArray(modList.modifiers)) {
+            for (const mod of modList.modifiers) {
+              if (mod.modifier_data && mod.modifier_data.name) {
+                modifiersArr.push(mod.modifier_data.name);
+              }
+            }
+          }
+        }
       }
 
       // If recipe exists, update its modifiers if needed; otherwise, create it
