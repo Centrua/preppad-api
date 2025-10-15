@@ -53,11 +53,6 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         defaultValue: null,
       },
-      allowedUnits: {
-        type: DataTypes.ARRAY(DataTypes.STRING),
-        allowNull: true,
-        defaultValue: [],
-      },
       conversionRate: {
         type: DataTypes.FLOAT,
         allowNull: true,

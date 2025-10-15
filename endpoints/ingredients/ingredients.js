@@ -28,16 +28,15 @@ router.get('/', authenticateJWT, async (req, res) => {
 router.post('/', authenticateJWT, async (req, res) => {
   try {
     const businessId = req.user.businessId;
-    const { itemName, allowedUnits, baseUnit, quantityInStock, max, conversionRate } = req.body;
+    const { itemName, baseUnit, quantityInStock, max, conversionRate } = req.body;
 
-    if (!itemName || !allowedUnits || !Array.isArray(allowedUnits) || allowedUnits.length === 0) {
-      return res.status(400).json({ error: 'Missing required field: itemName or allowedUnits' });
+    if (!itemName) {
+      return res.status(400).json({ error: 'Missing required field: itemName' });
     }
 
     const inventory = await Inventory.create({
       itemName: itemName || null,
       businessId,
-      allowedUnits,
       baseUnit,
       quantityInStock: quantityInStock,
       max: max,
@@ -56,7 +55,7 @@ router.put('/:id', authenticateJWT, async (req, res) => {
   try {
     const businessId = req.user.businessId;
     const { id } = req.params;
-    const { itemName, allowedUnits, baseUnit, quantityInStock, max, conversionRate } = req.body;
+    const { itemName, baseUnit, quantityInStock, max, conversionRate } = req.body;
 
     const inventory = await Inventory.findOne({
       where: {
@@ -71,7 +70,6 @@ router.put('/:id', authenticateJWT, async (req, res) => {
 
     await inventory.update({
       itemName: itemName !== undefined ? itemName : inventory.itemName,
-      allowedUnits: allowedUnits !== undefined ? allowedUnits : inventory.allowedUnits,
       baseUnit: baseUnit !== undefined ? baseUnit : inventory.baseUnit,
       quantityInStock: quantityInStock !== undefined ? quantityInStock : inventory.quantityInStock,
       max: max !== undefined ? max : inventory.max,
