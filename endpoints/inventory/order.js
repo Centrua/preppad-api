@@ -173,6 +173,7 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
       // After collecting modifier_ids, fetch their names from the MODIFIER catalog
       let modifierObjectsArr = [];
       if (modifiersArr.length > 0) {
+        console.log('Fetching modifier names for IDs:', modifiersArr);
         const modifierRes = await fetch(CATALOG_MODIFIER_URL, {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -192,18 +193,20 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
           // For each modifier_id, create a modifier object with name, ingredientId, and quantity
           for (const modId of modifiersArr) {
             const name = modifierIdToName[modId] || modId;
-            // Try to find the ingredient by name (if it exists)
             const ingredient = await Inventory.findOne({ where: { itemName: name, businessId } });
             if (ingredient) {
               modifierObjectsArr.push({ name, ingredientId: ingredient.id, quantity: 1 });
+              console.log(`Added modifier: { name: ${name}, ingredientId: ${ingredient.id}, quantity: 1 }`);
             } else {
-              // If not found, still add with null ingredientId
               modifierObjectsArr.push({ name, ingredientId: null, quantity: 1 });
+              console.warn(`Modifier ingredient not found for name: ${name}`);
             }
           }
         } else {
           console.error('Failed to fetch modifier names from catalog');
         }
+      } else {
+        console.log('No modifiers found for this item.');
       }
       // Use modifierObjectsArr for storing in the recipe's modifiers field
       let existingRecipe = await Recipe.findOne({
@@ -223,17 +226,21 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
           createdAt: new Date(),
           updatedAt: new Date(),
         });
+        console.log(`Created new recipe: ${item.name || 'Unnamed'} with variations:`, variationIds, 'and modifiers:', modifierObjectsArr);
       } else {
         let currentModifiers = Array.isArray(existingRecipe.modifiers) ? existingRecipe.modifiers : [];
-        // Merge and dedupe by name and ingredientId
         let updatedModifiers = [...currentModifiers];
         for (const modObj of modifierObjectsArr) {
           if (!updatedModifiers.some(m => m.name === modObj.name && m.ingredientId === modObj.ingredientId)) {
             updatedModifiers.push(modObj);
+            console.log(`Appended new modifier to recipe ${item.name || 'Unnamed'}:`, modObj);
           }
         }
         let currentVariations = Array.isArray(existingRecipe.variations) ? existingRecipe.variations : [];
         let updatedVariations = Array.from(new Set([...currentVariations, ...variationIds]));
+        if (updatedVariations.length !== currentVariations.length) {
+          console.log(`Updated variations for recipe ${item.name || 'Unnamed'}:`, updatedVariations);
+        }
         await existingRecipe.update({
           modifiers: updatedModifiers,
           variations: updatedVariations,
