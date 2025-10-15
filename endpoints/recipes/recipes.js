@@ -11,16 +11,15 @@ router.get('/', authenticateJWT, async (req, res) => {
   }
 
   try {
-    // Fetch all inventories for this business
     const inventories = await Inventory.findAll({
       where: { businessId },
-      attributes: ['id', 'itemName', 'allowedUnits'], // <-- include allowedUnits
+      attributes: ['id', 'itemName'],
       raw: true,
     });
-    // Create a map for quick lookup
+
     const inventoryMap = {};
     inventories.forEach(inv => {
-      inventoryMap[inv.id] = { itemName: inv.itemName, allowedUnits: inv.allowedUnits };
+      inventoryMap[inv.id] = { itemName: inv.itemName };
     });
 
     const items = await Recipe.findAll({
@@ -30,12 +29,10 @@ router.get('/', authenticateJWT, async (req, res) => {
 
     const recipes = items.map((item) => {
       const ingredients = (item.ingredients || []).map((ingredientId, idx) => {
-        const inv = inventoryMap[ingredientId] || {};
         return {
-          title: inv.itemName || 'Unknown',
+          title: inventoryMap[ingredientId]?.itemName || 'Unknown',
           unit: (item.ingredientsUnit && item.ingredientsUnit[idx]) || '',
           quantity: item.ingredientsQuantity?.[idx] || '',
-          allowedUnits: inv.allowedUnits || [],
         };
       });
       return {
