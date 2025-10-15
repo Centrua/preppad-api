@@ -172,7 +172,7 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         }
       }
 
-      // If recipe exists, update its modifiers if needed; otherwise, create it
+      // If recipe exists, always update its variations and modifiers to include all unique values; otherwise, create it
       let existingRecipe = await Recipe.findOne({
         where: {
           itemName: item.name || 'Unnamed',
@@ -191,22 +191,16 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
           updatedAt: new Date(),
         });
       } else {
-        // Update modifiers if there are new ones
+        // Always update variations and modifiers to include all unique values
         let currentModifiers = Array.isArray(existingRecipe.modifiers) ? existingRecipe.modifiers : [];
-        let newModifiers = modifiersArr.filter(m => !currentModifiers.includes(m));
-        // Update variations if there are new ones
         let currentVariations = Array.isArray(existingRecipe.variations) ? existingRecipe.variations : [];
-        let newVariations = variationIds.filter(v => !currentVariations.includes(v));
-        let updateObj = {};
-        if (newModifiers.length > 0) {
-          updateObj.modifiers = [...currentModifiers, ...newModifiers];
-        }
-        if (newVariations.length > 0) {
-          updateObj.variations = [...currentVariations, ...newVariations];
-        }
-        if (Object.keys(updateObj).length > 0) {
-          await existingRecipe.update(updateObj);
-        }
+        // Merge and dedupe
+        let updatedModifiers = Array.from(new Set([...currentModifiers, ...modifiersArr]));
+        let updatedVariations = Array.from(new Set([...currentVariations, ...variationIds]));
+        await existingRecipe.update({
+          modifiers: updatedModifiers,
+          variations: updatedVariations,
+        });
       }
     }
 
