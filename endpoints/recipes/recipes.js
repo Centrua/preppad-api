@@ -24,7 +24,7 @@ router.get('/', authenticateJWT, async (req, res) => {
 
     const items = await Recipe.findAll({
       where: { businessId },
-      attributes: ['itemId', 'itemName', 'unitCost', 'ingredients', 'ingredientsQuantity', 'ingredientsUnit', 'categories', 'variations'],
+      attributes: ['itemId', 'itemName', 'unitCost', 'ingredients', 'ingredientsQuantity', 'ingredientsUnit', 'categories', 'variations', 'modifiers'],
     });
 
     const recipes = items.map((item) => {
@@ -42,6 +42,7 @@ router.get('/', authenticateJWT, async (req, res) => {
         ingredients,
         categories: item.categories || [],
         variations: item.variations || [],
+        modifiers: item.modifiers || [],
       };
     });
 
@@ -54,7 +55,7 @@ router.get('/', authenticateJWT, async (req, res) => {
 
 router.post('/', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
-  const { itemName, unitCost, ingredients, ingredientsQuantity, ingredientsUnit, categories, variations } = req.body;
+  const { itemName, unitCost, ingredients, ingredientsQuantity, ingredientsUnit, categories, variations, modifiers } = req.body;
 
   if (!businessId || !itemName || !ingredients || !ingredientsUnit) {
     return res.status(400).json({ error: 'Missing data' });
@@ -70,6 +71,7 @@ router.post('/', authenticateJWT, async (req, res) => {
       ingredientsUnit,
       categories: categories || [],
       variations: variations || [],
+      modifiers: modifiers || [],
     });
 
     res.status(201).json({
@@ -80,6 +82,7 @@ router.post('/', authenticateJWT, async (req, res) => {
       ingredientsQuantity: item.ingredientsQuantity,
       categories: item.categories || [],
       variations: item.variations || [],
+      modifiers: item.modifiers || [],
     });
   } catch (err) {
     console.error('Error creating recipe:', err);
@@ -113,7 +116,7 @@ router.put('/:id', authenticateJWT, async (req, res) => {
 
     await item.save();
 
-    res.json(item);
+  res.json(item);
   } catch (err) {
     console.error('Error updating recipe:', err);
     res.status(500).json({ error: 'Internal server error' });
