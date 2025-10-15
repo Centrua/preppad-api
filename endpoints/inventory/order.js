@@ -295,6 +295,66 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         },
       });
 
+      // Track ingredient IDs processed by modifiers to skip in recipe/variation
+      const processedIngredientIds = new Set();
+
+      // Process modifiers first
+      if (Array.isArray(item.modifiers) && item.modifiers.length > 0 && dbItem && Array.isArray(dbItem.modifiers)) {
+        for (const orderModifier of item.modifiers) {
+          const recipeModifier = dbItem.modifiers.find(m => m.name === orderModifier.name);
+          if (recipeModifier) {
+            const ingredientId = recipeModifier.ingredientId;
+            processedIngredientIds.add(ingredientId);
+            // Get the ingredient ID and quantity from the recipe's modifier object
+            const ingredientQuantity = Number(recipeModifier.quantity) || 1;
+            const ingredient = await Inventory.findOne({
+              where: {
+                id: ingredientId,
+                businessId: businessId,
+              },
+            });
+            if (!ingredient) {
+              console.warn(`Modifier ingredient not found in DB for business ${businessId}: ${ingredientId}`);
+              continue;
+            }
+            // Use unit conversion for modifiers as well
+            const modifierUnit = ingredient.baseUnit || 'Count';
+            const baseUnit = ingredient.baseUnit || ingredient.unit || 'Count';
+            const conversionRate = ingredient.conversionRate || null;
+            const fromUnit = recipeModifier.unit || modifierUnit;
+            const ingredientQtyUsed = convertToBaseUnit(
+              ingredientQuantity,
+              fromUnit,
+              baseUnit,
+              ingredient.itemName || '',
+              conversionRate
+            );
+            // Subtract the used quantity (in base unit)
+            const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
+            await ingredient.update({ quantityInStock: newQuantity });
+            // Only add to shopping list if quantity in stock is less than or at 50% of max
+            if (newQuantity <= ingredient.max / 2) {
+              const idx = currentItemIds.indexOf(ingredient.id);
+              const needed = ingredient.max - newQuantity;
+              if (idx === -1) {
+                if (needed > 0) {
+                  currentItemIds.push(ingredient.id);
+                  currentQuantities.push(Math.ceil(needed));
+                }
+              } else {
+                if (currentQuantities[idx] >= ingredient.max) {
+                  currentQuantities[idx] += Math.ceil(ingredientQtyUsed);
+                } else {
+                  if (needed > 0) {
+                    currentQuantities[idx] = Math.ceil(needed);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
       // If item.variation_name exists, find the recipe whose variations array references a recipe with that name
       if (item.variation_name) {
         console.log('Looking for variation:', item.variation_name);
@@ -349,6 +409,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         const itemQuantityOrdered = Number(item.quantity) || 1;
         for (let i = 0; i < dbItem.ingredients.length; i++) {
           const ingredientId = dbItem.ingredients[i];
+          if (processedIngredientIds.has(ingredientId)) continue; // Skip if already processed by modifier
           const ingredientQtyUsedRaw = dbItem.ingredientsQuantity?.[i] || 0;
           const ingredient = await Inventory.findOne({
             where: {
@@ -370,6 +431,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
             totalQtyUsedRaw,
             recipeUnit,
             baseUnit,
+            ingredient.itemName || '',
             ingredient.conversionRate || null
           );
 
@@ -397,64 +459,6 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
                 currentQuantities[idx] += ingredientQtyUsedWhole;
               } else {
                 // Otherwise, set to needed to restock to max
-                if (needed > 0) {
-                  currentQuantities[idx] = Math.ceil(needed);
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // If the item has modifiers, treat each modifier as an ingredient
-      if (Array.isArray(item.modifiers) && item.modifiers.length > 0) {
-        for (const modifier of item.modifiers) {
-          const ingredientName = modifier.name;
-          const ingredientQuantity = Number(modifier.quantity) || 1;
-
-          // Find the ingredient in Inventory by name and businessId
-          const ingredient = await Inventory.findOne({
-            where: {
-              itemName: ingredientName,
-              businessId: businessId,
-            },
-          });
-
-          if (!ingredient) {
-            console.warn(`Modifier ingredient not found in DB for business ${businessId}: ${ingredientName}`);
-            continue;
-          }
-
-          // Use unit conversion for modifiers as well
-          const modifierUnit = ingredient.allowedUnits && ingredient.allowedUnits[0] || ingredient.baseUnit || 'Count';
-          const baseUnit = ingredient.baseUnit || ingredient.unit || 'Count';
-          const conversionRate = ingredient.conversionRate || null;
-          // If the modifier has a unit, use it; otherwise default to ingredient's unit
-          const fromUnit = modifier.unit || modifierUnit;
-          const ingredientQtyUsed = convertToBaseUnit(
-            ingredientQuantity,
-            fromUnit,
-            baseUnit,
-            conversionRate
-          );
-
-          // Subtract the used quantity (in base unit)
-          const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
-          await ingredient.update({ quantityInStock: newQuantity });
-
-          // Only add to shopping list if quantity in stock is at or below 50% of max
-          if (newQuantity <= ingredient.max / 2) {
-            const idx = currentItemIds.indexOf(ingredient.id);
-            const needed = ingredient.max - newQuantity;
-            if (idx === -1) {
-              if (needed > 0) {
-                currentItemIds.push(ingredient.id);
-                currentQuantities.push(Math.ceil(needed));
-              }
-            } else {
-              if (currentQuantities[idx] >= ingredient.max) {
-                currentQuantities[idx] += Math.ceil(ingredientQtyUsed);
-              } else {
                 if (needed > 0) {
                   currentQuantities[idx] = Math.ceil(needed);
                 }
