@@ -5,6 +5,7 @@ const { authenticateJWT } = require('../../middleware/authenticate');
 const db = require('../../models');
 
 const CATALOG_URL = `${process.env.SQUARE_URL}/v2/catalog/list?types=ITEM`;
+const CATALOG_MODIFIER_URL = `${process.env.SQUARE_URL}/v2/catalog/list?types=MODIFIER`;
 const INVENTORY_URL = `${process.env.SQUARE_URL}/v2/inventory/batch-retrieve-counts`;
 
 function convertToBaseUnit(amount, fromUnit, toUnit, conversionRate = null) {
@@ -66,7 +67,7 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
     const variationIds = [];
     const inventoryItems = items.map(item => {
       const { id: item_id, item_data } = item;
-      const { name, description, variations = [] } = item_data;
+      const { name, modifier_list_info, variations = [] } = item_data;
 
       const formattedVariations = variations.map(variation => {
         const { id: variation_id, item_variation_data } = variation;
@@ -85,13 +86,11 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         };
       });
 
-      // Store item_data for later use (modifiers)
       return {
         item_id,
         name,
-        description,
+        modifier_list_info,
         variations: formattedVariations,
-        item_data, // keep reference to original item_data
       };
     });
 
@@ -134,7 +133,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
       const firstVariation = item.variations[0];
       const unitCost = firstVariation ? firstVariation.price : 0;
 
-      // Handle variations: only create if not exists, collect their IDs
       let variationIds = [];
       for (const variation of item.variations) {
         let variationRecipe = await Recipe.findOne({
@@ -158,21 +156,56 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         }
       }
 
-      // Handle modifiers: store as array of strings in 'modifiers' column
+      // Handle modifiers: use item_data.modifier_list_info.modifier_overrides to get modifier_ids
       let modifiersArr = [];
-      if (item.item_data && item.item_data.modifier_list_data && Array.isArray(item.item_data.modifier_list_data)) {
-        for (const modList of item.item_data.modifier_list_data) {
-          if (modList.modifiers && Array.isArray(modList.modifiers)) {
-            for (const mod of modList.modifiers) {
-              if (mod.modifier_data && mod.modifier_data.name) {
-                modifiersArr.push(mod.modifier_data.name);
+      if (item.item_data && item.item_data.modifier_list_info && Array.isArray(item.item_data.modifier_list_info)) {
+        for (const modListInfo of item.item_data.modifier_list_info) {
+          if (modListInfo.modifier_overrides && Array.isArray(modListInfo.modifier_overrides)) {
+            for (const override of modListInfo.modifier_overrides) {
+              if (override.modifier_id) {
+                modifiersArr.push(override.modifier_id);
               }
             }
           }
         }
       }
 
-      // If recipe exists, always update its variations and modifiers to include all unique values; otherwise, create it
+      // After collecting modifier_ids, fetch their names from the MODIFIER catalog
+      let modifierObjectsArr = [];
+      if (modifiersArr.length > 0) {
+        const modifierRes = await fetch(CATALOG_MODIFIER_URL, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (modifierRes.ok) {
+          const modifierData = await modifierRes.json();
+          const modifierObjects = modifierData.objects || [];
+          // Build a map of modifier_id to name
+          const modifierIdToName = {};
+          for (const obj of modifierObjects) {
+            if (obj.type === 'MODIFIER' && obj.id && obj.modifier_data && obj.modifier_data.name) {
+              modifierIdToName[obj.id] = obj.modifier_data.name;
+            }
+          }
+          // For each modifier_id, create a modifier object with name, ingredientId, and quantity
+          for (const modId of modifiersArr) {
+            const name = modifierIdToName[modId] || modId;
+            // Try to find the ingredient by name (if it exists)
+            const ingredient = await Inventory.findOne({ where: { itemName: name, businessId } });
+            if (ingredient) {
+              modifierObjectsArr.push({ name, ingredientId: ingredient.id, quantity: 1 });
+            } else {
+              // If not found, still add with null ingredientId
+              modifierObjectsArr.push({ name, ingredientId: null, quantity: 1 });
+            }
+          }
+        } else {
+          console.error('Failed to fetch modifier names from catalog');
+        }
+      }
+      // Use modifierObjectsArr for storing in the recipe's modifiers field
       let existingRecipe = await Recipe.findOne({
         where: {
           itemName: item.name || 'Unnamed',
@@ -186,16 +219,20 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
           quantityInStock: totalQuantity || 0,
           businessId: businessId,
           variations: variationIds,
-          modifiers: modifiersArr,
+          modifiers: modifierObjectsArr,
           createdAt: new Date(),
           updatedAt: new Date(),
         });
       } else {
-        // Always update variations and modifiers to include all unique values
         let currentModifiers = Array.isArray(existingRecipe.modifiers) ? existingRecipe.modifiers : [];
+        // Merge and dedupe by name and ingredientId
+        let updatedModifiers = [...currentModifiers];
+        for (const modObj of modifierObjectsArr) {
+          if (!updatedModifiers.some(m => m.name === modObj.name && m.ingredientId === modObj.ingredientId)) {
+            updatedModifiers.push(modObj);
+          }
+        }
         let currentVariations = Array.isArray(existingRecipe.variations) ? existingRecipe.variations : [];
-        // Merge and dedupe
-        let updatedModifiers = Array.from(new Set([...currentModifiers, ...modifiersArr]));
         let updatedVariations = Array.from(new Set([...currentVariations, ...variationIds]));
         await existingRecipe.update({
           modifiers: updatedModifiers,
