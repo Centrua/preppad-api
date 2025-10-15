@@ -132,15 +132,72 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
       const firstVariation = item.variations[0];
       const unitCost = firstVariation ? firstVariation.price : 0;
 
-      await Recipe.upsert({
-        itemName: item.name || 'Unnamed',
-        unitCost: unitCost || 0,
-        quantityInStock: totalQuantity || 0,
-        businessId: businessId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      // Handle variations: only create if not exists, collect their IDs
+      let variationIds = [];
+      for (const variation of item.variations) {
+        let variationRecipe = await Recipe.findOne({
+          where: {
+            itemName: variation.name,
+            businessId: businessId,
+          },
+        });
+        if (!variationRecipe) {
+          variationRecipe = await Recipe.create({
+            itemName: variation.name,
+            unitCost: variation.price || 0,
+            quantityInStock: Object.values(variation.current_count || {}).reduce((a, b) => a + b, 0),
+            businessId: businessId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+        }
+        if (variationRecipe && variationRecipe.id) {
+          variationIds.push(variationRecipe.id);
+        }
+      }
 
+      // Handle modifiers: store as array of strings in 'modifiers' column
+      let modifiersArr = [];
+      if (item.modifiers && Array.isArray(item.modifiers)) {
+        modifiersArr = item.modifiers.map(mod => mod.name || String(mod));
+      }
+
+      // If recipe exists, update its modifiers if needed; otherwise, create it
+      let existingRecipe = await Recipe.findOne({
+        where: {
+          itemName: item.name || 'Unnamed',
+          businessId: businessId,
+        },
+      });
+      if (!existingRecipe) {
+        await Recipe.create({
+          itemName: item.name || 'Unnamed',
+          unitCost: unitCost || 0,
+          quantityInStock: totalQuantity || 0,
+          businessId: businessId,
+          variations: variationIds,
+          modifiers: modifiersArr,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      } else {
+        // Update modifiers if there are new ones
+        let currentModifiers = Array.isArray(existingRecipe.modifiers) ? existingRecipe.modifiers : [];
+        let newModifiers = modifiersArr.filter(m => !currentModifiers.includes(m));
+        // Update variations if there are new ones
+        let currentVariations = Array.isArray(existingRecipe.variations) ? existingRecipe.variations : [];
+        let newVariations = variationIds.filter(v => !currentVariations.includes(v));
+        let updateObj = {};
+        if (newModifiers.length > 0) {
+          updateObj.modifiers = [...currentModifiers, ...newModifiers];
+        }
+        if (newVariations.length > 0) {
+          updateObj.variations = [...currentVariations, ...newVariations];
+        }
+        if (Object.keys(updateObj).length > 0) {
+          await existingRecipe.update(updateObj);
+        }
+      }
     }
 
     console.log(`✅ Synced ${inventoryItems.length} items from Square to DB.`);
