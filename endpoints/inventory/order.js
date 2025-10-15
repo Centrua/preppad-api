@@ -295,18 +295,22 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         },
       });
 
-      // If item.variation_name exists, find the recipe whose variations array contains a recipe with that name
+      // If item.variation_name exists, find the recipe whose variations array references a recipe with that name
       if (item.variation_name) {
         // Get all recipes for this business
         const allRecipes = await Recipe.findAll({ where: { businessId } });
         // Find the recipe whose variations array references a recipe with itemName === item.variation_name
         for (const recipe of allRecipes) {
           if (Array.isArray(recipe.variations) && recipe.variations.length > 0) {
-            // Find the referenced recipe by id and check its name
             for (const variationId of recipe.variations) {
               const variationRecipe = allRecipes.find(r => r.itemId === variationId);
-              if (variationRecipe && variationRecipe?.itemName === item.variation_name) {
-                dbItem = variationRecipe;
+              if (variationRecipe && variationRecipe.itemName === item.variation_name) {
+                dbItem = recipe;
+                // Ensure the variation is in the recipe's variations array
+                if (!recipe.variations.includes(variationRecipe.itemId)) {
+                  recipe.variations.push(variationRecipe.itemId);
+                  await recipe.update({ variations: recipe.variations });
+                }
                 break;
               }
             }
