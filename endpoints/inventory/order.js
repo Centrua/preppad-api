@@ -8,42 +8,6 @@ const CATALOG_URL = `${process.env.SQUARE_URL}/v2/catalog/list?types=ITEM`;
 const INVENTORY_URL = `${process.env.SQUARE_URL}/v2/inventory/batch-retrieve-counts`;
 
 function convertToBaseUnit(amount, fromUnit, toUnit, conversionRate = null) {
-  if (toUnit === 'Count') {
-    if (fromUnit !== 'Count') throw new Error('Invalid conversion: fromUnit must be Count if toUnit is Count');
-    if (conversionRate && conversionRate > 0) {
-      return amount * conversionRate;
-    }
-    return amount;
-  }
-
-  if (toUnit === 'Ounce') {
-    const toOunces = {
-      'Teaspoons': 1 / 6,        // 6 tsp = 1 oz
-      'Tablespoons': 1 / 2,      // 2 tbsp = 1 oz
-      'Fluid Ounces': 1,         // 1 fl oz = 1 oz
-      'Dry Ounces': 1,           // 1 dry oz = 1 oz
-      'Cups': 8,                 // 1 cup = 8 oz
-      'Pints': 16,               // 1 pint = 16 oz
-      'Quarts': 32,              // 1 quart = 32 oz
-      'Gallons': 128,            // 1 gallon = 128 oz
-      'Ounce': 1,                // already ounces
-      'Milliliters': 0.033814,   // 1 ml = 0.033814 oz (US fluid)
-      'Liters': 33.814,          // 1 l = 33.814 oz (US fluid)
-      'Grams': 0.035274,         // 1 g = 0.035274 oz (weight)
-      'Kilograms': 35.274,       // 1 kg = 35.274 oz (weight)
-      'Milligrams': 0.000035274, // 1 mg = 0.000035274 oz (weight)
-      'Pounds': 16,              // 1 lb = 16 oz (weight)
-    };
-    if (!toOunces[fromUnit]) throw new Error(`Invalid fromUnit for ounce conversion: ${fromUnit}`);
-    let ounces = amount * toOunces[fromUnit];
-    if (conversionRate && conversionRate > 0) {
-      ounces = ounces * conversionRate;
-    }
-    return ounces;
-  }
-
-  throw new Error(`Invalid toUnit: ${toUnit}`);
-
     if (toUnit === 'Count') {
       if (fromUnit !== 'Count') throw new Error('Invalid conversion: fromUnit must be Count if toUnit is Count');
       // If conversionRate is provided, return the fraction of the package used
@@ -345,8 +309,8 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
           const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
           await ingredient.update({ quantityInStock: newQuantity });
 
-          // Only add to shopping list if quantity in stock is less than max
-          if (newQuantity < ingredient.max) {
+          // Only add to shopping list if quantity in stock is at or below 50% of max
+          if (newQuantity <= ingredient.max / 2) {
             const idx = currentItemIds.indexOf(ingredientId);
             const needed = ingredient.max - newQuantity;
             if (idx === -1) {
@@ -407,8 +371,8 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
           const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
           await ingredient.update({ quantityInStock: newQuantity });
 
-          // Only add to shopping list if quantity in stock is less than max
-          if (newQuantity < ingredient.max) {
+          // Only add to shopping list if quantity in stock is at or below 50% of max
+          if (newQuantity <= ingredient.max / 2) {
             const idx = currentItemIds.indexOf(ingredient.id);
             const needed = ingredient.max - newQuantity;
             if (idx === -1) {
