@@ -7,69 +7,78 @@ const db = require('../../models');
 const CATALOG_URL = `${process.env.SQUARE_URL}/v2/catalog/list?types=ITEM`;
 const INVENTORY_URL = `${process.env.SQUARE_URL}/v2/inventory/batch-retrieve-counts`;
 
-// Add this helper function near the top of your file
-function convertToBaseUnit(amount, fromUnit, toUnit, ingredientName = '', conversionRate = null) {
-  // Conversion rates to "Teaspoons" as the smallest common denominator
-  const toTeaspoons = {
-    'Teaspoons': 1,
-    'Tablespoons': 3,
-    'Fluid Ounces': 6,
-    'Cups': 48,
-    'Pints': 96,
-    'Quarts': 192,
-    'Gallons': 768,
-    'Dry Ounces': 6, // Approximate for water
-    'Count': 1,
-    'Slices': 1, // Default, but see below for special handling
-    'Whole/Package': 20, // Default: 1 Whole/Package = 20 Slices
-  };
-
-  // Use conversionRate for any conversion to/from Whole/Package if provided
-  if (conversionRate && (fromUnit === 'Whole/Package' || toUnit === 'Whole/Package')) {
-    if (fromUnit === 'Whole/Package' && toUnit !== 'Whole/Package') {
-      // Convert from Whole/Package to another unit
-      // 1 Whole/Package = conversionRate of toUnit
+function convertToBaseUnit(amount, fromUnit, toUnit, conversionRate = null) {
+  if (toUnit === 'Count') {
+    if (fromUnit !== 'Count') throw new Error('Invalid conversion: fromUnit must be Count if toUnit is Count');
+    if (conversionRate && conversionRate > 0) {
       return amount * conversionRate;
     }
-    if (fromUnit !== 'Whole/Package' && toUnit === 'Whole/Package') {
-      // Convert from another unit to Whole/Package
-      // conversionRate of fromUnit = 1 Whole/Package
-      return amount / conversionRate;
+    return amount;
+  }
+
+  if (toUnit === 'Ounce') {
+    const toOunces = {
+      'Teaspoons': 1 / 6,        // 6 tsp = 1 oz
+      'Tablespoons': 1 / 2,      // 2 tbsp = 1 oz
+      'Fluid Ounces': 1,         // 1 fl oz = 1 oz
+      'Dry Ounces': 1,           // 1 dry oz = 1 oz
+      'Cups': 8,                 // 1 cup = 8 oz
+      'Pints': 16,               // 1 pint = 16 oz
+      'Quarts': 32,              // 1 quart = 32 oz
+      'Gallons': 128,            // 1 gallon = 128 oz
+      'Ounce': 1,                // already ounces
+      'Milliliters': 0.033814,   // 1 ml = 0.033814 oz (US fluid)
+      'Liters': 33.814,          // 1 l = 33.814 oz (US fluid)
+      'Grams': 0.035274,         // 1 g = 0.035274 oz (weight)
+      'Kilograms': 35.274,       // 1 kg = 35.274 oz (weight)
+      'Milligrams': 0.000035274, // 1 mg = 0.000035274 oz (weight)
+      'Pounds': 16,              // 1 lb = 16 oz (weight)
+    };
+    if (!toOunces[fromUnit]) throw new Error(`Invalid fromUnit for ounce conversion: ${fromUnit}`);
+    let ounces = amount * toOunces[fromUnit];
+    if (conversionRate && conversionRate > 0) {
+      ounces = ounces * conversionRate;
     }
+    return ounces;
   }
 
-  // Special case: Cheese - 16 slices = 1 Whole/Package
-  if ((fromUnit === 'Slices' && toUnit === 'Whole/Package') && ingredientName && ingredientName.toLowerCase().includes('cheese')) {
-    return amount / 16;
-  }
-  if ((fromUnit === 'Whole/Package' && toUnit === 'Slices') && ingredientName && ingredientName.toLowerCase().includes('cheese')) {
-    return amount * 16;
-  }
+  throw new Error(`Invalid toUnit: ${toUnit}`);
 
-  // Special case: Bread - 20 slices = 1 Whole/Package
-  if ((fromUnit === 'Slices' && toUnit === 'Whole/Package') && ingredientName && ingredientName.toLowerCase().includes('bread')) {
-    return amount / 20;
-  }
-  if ((fromUnit === 'Whole/Package' && toUnit === 'Slices') && ingredientName && ingredientName.toLowerCase().includes('bread')) {
-    return amount * 20;
-  }
+    if (toUnit === 'Count') {
+      if (fromUnit !== 'Count') throw new Error('Invalid conversion: fromUnit must be Count if toUnit is Count');
+      // If conversionRate is provided, return the fraction of the package used
+      if (conversionRate && conversionRate > 0) {
+        return amount / conversionRate;
+      }
+      return amount;
+    }
 
-  // General case: 20 slices = 1 Whole/Package
-  if ((fromUnit === 'Slices' && toUnit === 'Whole/Package')) {
-    return amount / 20;
-  }
-  if ((fromUnit === 'Whole/Package' && toUnit === 'Slices')) {
-    return amount * 20;
-  }
-
-  if (fromUnit === toUnit) return amount;
-
-  // If either unit is not in the table, return as-is
-  if (!toTeaspoons[fromUnit] || !toTeaspoons[toUnit]) return amount;
-
-  // Convert from fromUnit to teaspoons, then to toUnit
-  const amountInTeaspoons = amount * toTeaspoons[fromUnit];
-  return amountInTeaspoons / toTeaspoons[toUnit];
+    if (toUnit === 'Ounce') {
+      const toOunces = {
+        'Teaspoons': 1 / 6,        // 6 tsp = 1 oz
+        'Tablespoons': 1 / 2,      // 2 tbsp = 1 oz
+        'Fluid Ounces': 1,         // 1 fl oz = 1 oz
+        'Dry Ounces': 1,           // 1 dry oz = 1 oz
+        'Cups': 8,                 // 1 cup = 8 oz
+        'Pints': 16,               // 1 pint = 16 oz
+        'Quarts': 32,              // 1 quart = 32 oz
+        'Gallons': 128,            // 1 gallon = 128 oz
+        'Ounce': 1,                // already ounces
+        'Milliliters': 0.033814,   // 1 ml = 0.033814 oz (US fluid)
+        'Liters': 33.814,          // 1 l = 33.814 oz (US fluid)
+        'Grams': 0.035274,         // 1 g = 0.035274 oz (weight)
+        'Kilograms': 35.274,       // 1 kg = 35.274 oz (weight)
+        'Milligrams': 0.000035274, // 1 mg = 0.000035274 oz (weight)
+        'Pounds': 16,              // 1 lb = 16 oz (weight)
+      };
+      if (!toOunces[fromUnit]) throw new Error(`Invalid fromUnit for ounce conversion: ${fromUnit}`);
+      let ounces = amount * toOunces[fromUnit];
+      // If conversionRate is provided, return the fraction of the package used in ounces
+      if (conversionRate && conversionRate > 0) {
+        return ounces / conversionRate;
+      }
+      return ounces;
+    }
 }
 
 // Main sync function
@@ -326,7 +335,6 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
             totalQtyUsedRaw,
             recipeUnit,
             baseUnit,
-            ingredient.itemName || '',
             ingredient.conversionRate || null
           );
 
@@ -392,7 +400,6 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
             ingredientQuantity,
             fromUnit,
             baseUnit,
-            ingredient.itemName || '',
             conversionRate
           );
 
