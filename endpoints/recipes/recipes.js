@@ -35,6 +35,20 @@ router.get('/', authenticateJWT, async (req, res) => {
           quantity: item.ingredientsQuantity?.[idx] || '',
         };
       });
+      // Deserialize modifiers if present and JSON-encoded
+      let modifiers = [];
+      if (item.modifiers) {
+        try {
+          if (typeof item.modifiers === 'string') {
+            modifiers = JSON.parse(item.modifiers);
+          } else if (Array.isArray(item.modifiers)) {
+            modifiers = item.modifiers;
+          }
+        } catch (e) {
+          console.error('Failed to parse modifiers for recipe', item.itemId, e);
+          modifiers = [];
+        }
+      }
       return {
         id: item.itemId,
         title: item.itemName,
@@ -42,7 +56,7 @@ router.get('/', authenticateJWT, async (req, res) => {
         ingredients,
         categories: item.categories || [],
         variations: item.variations || [],
-        modifiers: item.modifiers || [],
+        modifiers,
       };
     });
 
