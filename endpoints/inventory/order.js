@@ -399,6 +399,10 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
           console.log('Matched recipeModifier:', recipeModifier);
           if (recipeModifier) {
             const ingredientId = recipeModifier.ingredientId;
+            if (ingredientId === undefined || ingredientId === null) {
+              console.warn(`Skipping modifier with invalid ingredientId:`, recipeModifier);
+              continue;
+            }
             processedIngredientIds.add(ingredientId);
             const ingredientQuantity = Number(recipeModifier.quantity) || 1;
             const ingredient = await Inventory.findOne({
@@ -452,6 +456,10 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
       if (dbItem && Array.isArray(dbItem.ingredients)) {
         for (const ingredientEntry of dbItem.ingredients) {
           const ingredientId = ingredientEntry.ingredientId;
+          if (ingredientId === undefined || ingredientId === null) {
+            console.warn(`Skipping variation ingredient with invalid ingredientId:`, ingredientEntry);
+            continue;
+          }
           if (processedIngredientIds.has(ingredientId)) {
             console.log(`Skipping ingredient ${ingredientId} (already processed by modifier)`);
             continue;
@@ -501,8 +509,6 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
           }
         }
       }
-
-      // (Removed: never use parent recipe when variation_name is present)
 
       if (!dbItem) {
         console.warn(`Item not found in DB for business ${businessId}: ${itemName}`);
