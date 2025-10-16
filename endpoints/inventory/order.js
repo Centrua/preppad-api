@@ -331,21 +331,25 @@ async function getOrder(orderId, accessToken) {
 
 router.post('/webhook/order-updated', express.json(), async (req, res) => {
   const event = req.body;
+  console.log('Webhook received:', JSON.stringify(event, null, 2));
 
   res.status(200).send('OK');
 
   const orderUpdated = event.data?.object?.order_updated;
+  console.log('orderUpdated:', orderUpdated);
 
   if (!event || event.type !== 'order.updated' || !orderUpdated?.order_id) {
-    console.error('Invalid payload received');
+    console.error('Invalid payload received', { eventType: event.type, orderUpdated });
     return;
   }
 
   const orderId = orderUpdated.order_id;
   const merchantId = event.merchant_id;
+  console.log('Processing orderId:', orderId, 'merchantId:', merchantId);
 
   try {
     const business = await Business.findOne({ where: { squareMerchantId: merchantId } });
+    console.log('Business lookup result:', business ? business.id : null);
     if (!business || !business.squareAccessToken) {
       console.error('Business not found or missing access token');
       return;
@@ -359,9 +363,11 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
 
     await ProcessedEvent.create({ orderId });
     const fullOrder = await getOrder(orderId, business.squareAccessToken);
+    console.log('Full order:', JSON.stringify(fullOrder, null, 2));
     const businessId = business.id;
 
     for (const item of fullOrder.line_items || []) {
+      console.log('Processing line item:', JSON.stringify(item, null, 2));
       const itemName = item.name;
       let dbItem = await Recipe.findOne({
         where: {
@@ -369,12 +375,15 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
           businessId: businessId,
         },
       });
+      console.log('Recipe lookup result:', dbItem ? dbItem.itemId : null);
 
       const processedIngredientIds = new Set();
 
       if (Array.isArray(item.modifiers) && item.modifiers.length > 0 && dbItem && Array.isArray(dbItem.modifiers)) {
         for (const orderModifier of item.modifiers) {
+          console.log('Processing orderModifier:', orderModifier);
           const recipeModifier = dbItem.modifiers.find(m => m.name === orderModifier.name);
+          console.log('Matched recipeModifier:', recipeModifier);
           if (recipeModifier) {
             const ingredientId = recipeModifier.ingredientId;
             processedIngredientIds.add(ingredientId);
@@ -385,6 +394,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
                 businessId: businessId,
               },
             });
+            console.log('Modifier ingredient lookup:', ingredient);
             if (!ingredient) {
               console.warn(`Modifier ingredient not found in DB for business ${businessId}: ${ingredientId}`);
               continue;
@@ -401,6 +411,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
               conversionRate
             );
             const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
+            console.log(`Updating ingredient ${ingredient.itemName} (${ingredient.id}) quantity from ${ingredient.quantityInStock} to ${newQuantity}`);
             await ingredient.update({ quantityInStock: newQuantity });
             if (newQuantity <= ingredient.max / 2) {
               const idx = currentItemIds.indexOf(ingredient.id);
@@ -425,18 +436,21 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
       }
 
       if (item.variation_name) {
+        console.log('Processing variation_name:', item.variation_name);
         const allRecipes = await Recipe.findAll({ where: { businessId } });
         for (const recipe of allRecipes) {
           if (Array.isArray(recipe.variations) && recipe.variations.length > 0) {
             for (const variationId of recipe.variations) {
               const variationRecipe = allRecipes.find(r => r.itemId === variationId);
               if (variationRecipe) {
+                console.log('Found variationRecipe:', variationRecipe.itemName);
               }
               if (variationRecipe && variationRecipe.itemName === item.variation_name) {
                 dbItem = recipe;
                 if (!recipe.variations.includes(variationRecipe.itemId)) {
                   recipe.variations.push(variationRecipe.itemId);
                   await recipe.update({ variations: recipe.variations });
+                  console.log('Added variationRecipe to recipe:', recipe.itemName);
                 }
                 break;
               }
@@ -457,6 +471,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
           itemIds: [],
           quantities: [],
         });
+        console.log('Created new shoppingList for business:', businessId);
       }
 
       let currentItemIds = Array.isArray(shoppingList.itemIds) ? [...shoppingList.itemIds] : [];
@@ -474,6 +489,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
               businessId: businessId,
             },
           });
+          console.log('Ingredient lookup for recipe:', ingredient);
 
           if (!ingredient) continue;
 
@@ -492,6 +508,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
           const ingredientQtyUsedWhole = Math.ceil(ingredientQtyUsed);
 
           const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
+          console.log(`Updating ingredient ${ingredient.itemName} (${ingredient.id}) quantity from ${ingredient.quantityInStock} to ${newQuantity}`);
           await ingredient.update({ quantityInStock: newQuantity });
 
           if (newQuantity <= ingredient.max / 2) {
@@ -519,6 +536,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         itemIds: currentItemIds,
         quantities: currentQuantities,
       });
+      console.log('Updated shoppingList:', shoppingList.itemIds, shoppingList.quantities);
     }
 
     console.log('Order processed:', orderId);
