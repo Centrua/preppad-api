@@ -177,6 +177,32 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
       // Only use base modifiers from modifier_list_info
       // Collect all modifier_list_ids for this item
       let modifierObjectsArr = [];
+      console.log(`modifier_list_info for item '${item.name}':`, item.modifier_list_info);
+      if (item.modifier_list_info && item.modifier_list_info.length > 0 && typeof modifierObjects !== 'undefined') {
+        for (const modListInfo of item.modifier_list_info) {
+          const modifierListId = modListInfo.modifier_list_id;
+          console.log(`Processing modifierListId: ${modifierListId} for item '${item.name}'`);
+          if (modifierListId) {
+            const modifierListObj = modifierObjects.find(obj => obj.id === modifierListId);
+            if (modifierListObj) {
+              console.log(`Found modifierListObj for id ${modifierListId}:`, modifierListObj);
+            } else {
+              console.warn(`No modifierListObj found for id ${modifierListId}`);
+            }
+            if (modifierListObj && modifierListObj.modifier_list_data && Array.isArray(modifierListObj.modifier_list_data.modifiers)) {
+              for (const mod of modifierListObj.modifier_list_data.modifiers) {
+                let ingredient = await Inventory.findOne({ where: { itemName: mod.name, businessId } });
+                console.log(`Mapping modifier '${mod.name}' (id: ${mod.id}) to ingredient:`, ingredient ? ingredient.id : null);
+                modifierObjectsArr.push({ name: mod.name, ingredientId: ingredient ? ingredient.id : null, quantity: 1 });
+              }
+            } else if (modifierListObj) {
+              console.warn(`modifierListObj for id ${modifierListId} has no modifiers array.`);
+            }
+          }
+        }
+      } else {
+        console.warn(`No modifier_list_info or modifierObjects for item '${item.name}'`);
+      }
       if (item.modifier_list_info && item.modifier_list_info.length > 0 && typeof modifierObjects !== 'undefined') {
         for (const modListInfo of item.modifier_list_info) {
           const modifierListId = modListInfo.modifier_list_id;
