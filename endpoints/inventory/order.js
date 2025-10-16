@@ -369,20 +369,33 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
     for (const item of fullOrder.line_items || []) {
       console.log('Processing line item:', JSON.stringify(item, null, 2));
       const itemName = item.name;
-      let dbItem = await Recipe.findOne({
-        where: {
-          itemName: itemName,
-          businessId: businessId,
-        },
-      });
-      console.log('Recipe lookup result:', dbItem ? dbItem.itemId : null);
+      let dbItem = null;
+      // If variation_name is present, always use the variation recipe
+      if (item.variation_name) {
+        const allRecipes = await Recipe.findAll({ where: { businessId } });
+        dbItem = allRecipes.find(r => r.itemName === item.variation_name);
+        console.log('Variation recipe lookup result:', dbItem ? dbItem.itemId : null);
+      } else {
+        dbItem = await Recipe.findOne({
+          where: {
+            itemName: itemName,
+            businessId: businessId,
+          },
+        });
+        console.log('Recipe lookup result:', dbItem ? dbItem.itemId : null);
+      }
 
+      // Always parse modifiers as objects
+      let parsedModifiers = Array.isArray(dbItem?.modifiers)
+        ? dbItem.modifiers.map(m => (typeof m === 'string' ? JSON.parse(m) : m)).filter(Boolean)
+        : [];
       const processedIngredientIds = new Set();
 
-      if (Array.isArray(item.modifiers) && item.modifiers.length > 0 && dbItem && Array.isArray(dbItem.modifiers)) {
+      // 1. Process modifiers first
+      if (Array.isArray(item.modifiers) && item.modifiers.length > 0 && dbItem && parsedModifiers.length > 0) {
         for (const orderModifier of item.modifiers) {
           console.log('Processing orderModifier:', orderModifier);
-          const recipeModifier = dbItem.modifiers.find(m => m.name === orderModifier.name);
+          const recipeModifier = parsedModifiers.find(m => m.name === orderModifier.name);
           console.log('Matched recipeModifier:', recipeModifier);
           if (recipeModifier) {
             const ingredientId = recipeModifier.ingredientId;
@@ -435,29 +448,61 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         }
       }
 
-      if (item.variation_name) {
-        console.log('Processing variation_name:', item.variation_name);
-        const allRecipes = await Recipe.findAll({ where: { businessId } });
-        for (const recipe of allRecipes) {
-          if (Array.isArray(recipe.variations) && recipe.variations.length > 0) {
-            for (const variationId of recipe.variations) {
-              const variationRecipe = allRecipes.find(r => r.itemId === variationId);
-              if (variationRecipe) {
-                console.log('Found variationRecipe:', variationRecipe.itemName);
+      // 2. Process the rest of the variation recipe's ingredients, skipping those already processed by modifiers
+      if (dbItem && Array.isArray(dbItem.ingredients)) {
+        for (const ingredientEntry of dbItem.ingredients) {
+          const ingredientId = ingredientEntry.ingredientId;
+          if (processedIngredientIds.has(ingredientId)) {
+            console.log(`Skipping ingredient ${ingredientId} (already processed by modifier)`);
+            continue;
+          }
+          const ingredientQuantity = Number(ingredientEntry.quantity) || 1;
+          const ingredient = await Inventory.findOne({
+            where: {
+              id: ingredientId,
+              businessId: businessId,
+            },
+          });
+          console.log('Variation ingredient lookup:', ingredient);
+          if (!ingredient) {
+            console.warn(`Variation ingredient not found in DB for business ${businessId}: ${ingredientId}`);
+            continue;
+          }
+          const baseUnit = ingredient.baseUnit || ingredient.unit || 'Count';
+          const fromUnit = ingredientEntry.unit || baseUnit;
+          const conversionRate = ingredient.conversionRate || null;
+          const ingredientQtyUsed = convertToBaseUnit(
+            ingredientQuantity,
+            fromUnit,
+            baseUnit,
+            ingredient.itemName || '',
+            conversionRate
+          );
+          const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
+          console.log(`Updating ingredient ${ingredient.itemName} (${ingredient.id}) quantity from ${ingredient.quantityInStock} to ${newQuantity}`);
+          await ingredient.update({ quantityInStock: newQuantity });
+          if (newQuantity <= ingredient.max / 2) {
+            const idx = currentItemIds.indexOf(ingredient.id);
+            const needed = ingredient.max - newQuantity;
+            if (idx === -1) {
+              if (needed > 0) {
+                currentItemIds.push(ingredient.id);
+                currentQuantities.push(Math.ceil(needed));
               }
-              if (variationRecipe && variationRecipe.itemName === item.variation_name) {
-                dbItem = recipe;
-                if (!recipe.variations.includes(variationRecipe.itemId)) {
-                  recipe.variations.push(variationRecipe.itemId);
-                  await recipe.update({ variations: recipe.variations });
-                  console.log('Added variationRecipe to recipe:', recipe.itemName);
+            } else {
+              if (currentQuantities[idx] >= ingredient.max) {
+                currentQuantities[idx] += Math.ceil(ingredientQtyUsed);
+              } else {
+                if (needed > 0) {
+                  currentQuantities[idx] = Math.ceil(needed);
                 }
-                break;
               }
             }
           }
         }
       }
+
+      // (Removed: never use parent recipe when variation_name is present)
 
       if (!dbItem) {
         console.warn(`Item not found in DB for business ${businessId}: ${itemName}`);
