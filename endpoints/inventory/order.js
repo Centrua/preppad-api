@@ -148,8 +148,8 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
             updatedAt: new Date(),
           });
         }
-        if (variationRecipe && variationRecipe.id) {
-          variationIds.push(variationRecipe.id);
+        if (variationRecipe && variationRecipe.itemId) {
+          variationIds.push(variationRecipe.itemId);
         }
       }
 
@@ -165,7 +165,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
 
       let modifierObjectsArr = [];
       if (modifiersArr.length > 0) {
-        console.log('Fetching modifier names for IDs:', modifiersArr);
         const modifierRes = await fetch(CATALOG_MODIFIER_URL, {
           headers: {
             Authorization: `Bearer ${accessToken}`,
