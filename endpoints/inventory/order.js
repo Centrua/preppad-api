@@ -132,7 +132,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
 
       let variationIds = [];
       for (const variation of item.variations) {
-        // Always create a new recipe for this variation
         const variationRecipe = await Recipe.create({
           itemName: variation.name,
           unitCost: variation.price || 0,
@@ -142,7 +141,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
           updatedAt: new Date(),
         });
 
-        // Find the recipe for this item
         const parentRecipe = await Recipe.findOne({
           where: {
             itemName: item.name,
@@ -151,7 +149,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         });
         let foundDuplicate = false;
         if (parentRecipe && Array.isArray(parentRecipe.variations)) {
-          // Get all recipes referenced in the variations array
           const allRecipes = await Recipe.findAll({ where: { businessId: businessId } });
           for (const variationId of parentRecipe.variations) {
             const vRecipe = allRecipes.find(r => r.itemId === variationId);
@@ -161,33 +158,26 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
             }
           }
         }
-        console.log('Parent recipe variations before:', parentRecipe ? parentRecipe.variations : null);
         if (foundDuplicate) {
           await variationRecipe.destroy();
-          console.log(`Deleted duplicate variation recipe: ${variationRecipe.itemName}`);
         } else {
-          // Add the new variationRecipe.itemId to the parent recipe's variations array if not already present
           if (parentRecipe) {
             if (!Array.isArray(parentRecipe.variations)) parentRecipe.variations = [];
             if (!parentRecipe.variations.includes(variationRecipe.itemId)) {
               parentRecipe.variations.push(variationRecipe.itemId);
               await parentRecipe.save();
-              console.log(`Added variationRecipe.itemId ${variationRecipe.itemId} to parent recipe ${parentRecipe.itemId}`);
             } else {
-              console.log(`variationRecipe.itemId ${variationRecipe.itemId} already present in parent recipe ${parentRecipe.itemId}`);
             }
-            console.log('Parent recipe variations after:', parentRecipe.variations);
           } else {
-            console.log('No parent recipe found for item:', item.name);
           }
           variationIds.push(variationRecipe.itemId);
         }
-        console.log(`Created variation recipe: ${variationRecipe.itemName}`);
       }
 
       let modifiersArr = [];
       if(item.modifier_list_info && item.modifier_list_info.length > 0) {
         for (const modListInfo of item.modifier_list_info) {
+          console.log('Processing modifier list:', modListInfo);
           if(!modListInfo.modifier_overrides) continue;
           for (const override of modListInfo.modifier_overrides) {
             modifiersArr.push(override.modifier_id);
