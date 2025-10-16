@@ -229,7 +229,7 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         let updatedModifiers = [...currentModifiers];
         for (const modObj of modifierObjectsArr) {
           // Only add if not already present by name
-          if (!updatedModifiers.some(m => m.name === modObj.name)) {
+          if (!updatedModifiers.includes(modObj)) {
             updatedModifiers.push(modObj);
             console.log(`Appended new modifier to recipe ${item.name || 'Unnamed'}:`, modObj);
           } else {
