@@ -154,8 +154,8 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
           // Get all recipes referenced in the variations array
           const allRecipes = await Recipe.findAll({ where: { businessId: businessId } });
           for (const variationId of parentRecipe.variations) {
-            const vRecipe = allRecipes.find(r => r.id === variationId);
-            if (vRecipe && vRecipe.itemName === variationRecipe.itemName && vRecipe.id !== variationRecipe.id) {
+            const vRecipe = allRecipes.find(r => r.itemId === variationId);
+            if (vRecipe && vRecipe.itemName === variationRecipe.itemName && vRecipe.itemId !== variationRecipe.itemId) {
               foundDuplicate = true;
               break;
             }
@@ -165,7 +165,7 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
           await variationRecipe.destroy();
           console.log(`Deleted duplicate variation recipe: ${variationRecipe.itemName}`);
         } else {
-          variationIds.push(variationRecipe.id);
+          variationIds.push(variationRecipe.itemId);
         }
       }
 
