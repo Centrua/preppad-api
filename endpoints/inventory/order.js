@@ -161,12 +161,28 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
             }
           }
         }
+        console.log('Parent recipe variations before:', parentRecipe ? parentRecipe.variations : null);
         if (foundDuplicate) {
           await variationRecipe.destroy();
           console.log(`Deleted duplicate variation recipe: ${variationRecipe.itemName}`);
         } else {
+          // Add the new variationRecipe.itemId to the parent recipe's variations array if not already present
+          if (parentRecipe) {
+            if (!Array.isArray(parentRecipe.variations)) parentRecipe.variations = [];
+            if (!parentRecipe.variations.includes(variationRecipe.itemId)) {
+              parentRecipe.variations.push(variationRecipe.itemId);
+              await parentRecipe.save();
+              console.log(`Added variationRecipe.itemId ${variationRecipe.itemId} to parent recipe ${parentRecipe.itemId}`);
+            } else {
+              console.log(`variationRecipe.itemId ${variationRecipe.itemId} already present in parent recipe ${parentRecipe.itemId}`);
+            }
+            console.log('Parent recipe variations after:', parentRecipe.variations);
+          } else {
+            console.log('No parent recipe found for item:', item.name);
+          }
           variationIds.push(variationRecipe.itemId);
         }
+        console.log(`Created variation recipe: ${variationRecipe.itemName}`);
       }
 
       let modifiersArr = [];
