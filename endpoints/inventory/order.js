@@ -228,15 +228,23 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         let currentModifiers = Array.isArray(existingRecipe.modifiers) ? existingRecipe.modifiers : [];
         let updatedModifiers = [...currentModifiers];
         for (const modObj of modifierObjectsArr) {
-          if (!updatedModifiers.some(m => m.name === modObj.name && m.ingredientId === modObj.ingredientId)) {
+          // Only add if not already present by name
+          if (!updatedModifiers.some(m => m.name === modObj.name)) {
             updatedModifiers.push(modObj);
             console.log(`Appended new modifier to recipe ${item.name || 'Unnamed'}:`, modObj);
+          } else {
+            console.log(`Skipped duplicate modifier for recipe ${item.name || 'Unnamed'}:`, modObj);
           }
         }
         let currentVariations = Array.isArray(existingRecipe.variations) ? existingRecipe.variations : [];
-        let updatedVariations = Array.from(new Set([...currentVariations, ...variationIds]));
-        if (updatedVariations.length !== currentVariations.length) {
-          console.log(`Updated variations for recipe ${item.name || 'Unnamed'}:`, updatedVariations);
+        let updatedVariations = [...currentVariations];
+        for (const variationId of variationIds) {
+          if (!updatedVariations.includes(variationId)) {
+            updatedVariations.push(variationId);
+            console.log(`Appended new variation to recipe ${item.name || 'Unnamed'}:`, variationId);
+          } else {
+            console.log(`Skipped duplicate variation for recipe ${item.name || 'Unnamed'}:`, variationId);
+          }
         }
         await existingRecipe.update({
           modifiers: updatedModifiers,
@@ -272,7 +280,8 @@ router.post('/sync', authenticateJWT, async (req, res) => {
 async function getOrder(orderId, accessToken) {
   const response = await fetch(`${process.env.SQUARE_URL}/v2/orders/${orderId}`, {
     method: 'GET',
-    headers: {
+    headers:
+     {
       'Square-Version': '2023-06-08',
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
