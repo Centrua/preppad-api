@@ -132,24 +132,40 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
 
       let variationIds = [];
       for (const variation of item.variations) {
-        let variationRecipe = await Recipe.findOne({
+        // Always create a new recipe for this variation
+        const variationRecipe = await Recipe.create({
+          itemName: variation.name,
+          unitCost: variation.price || 0,
+          quantityInStock: Object.values(variation.current_count || {}).reduce((a, b) => a + b, 0),
+          businessId: businessId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+
+        // Find the recipe for this item
+        const parentRecipe = await Recipe.findOne({
           where: {
-            itemName: variation.name,
+            itemName: item.name,
             businessId: businessId,
           },
         });
-        if (!variationRecipe) {
-          variationRecipe = await Recipe.create({
-            itemName: variation.name,
-            unitCost: variation.price || 0,
-            quantityInStock: Object.values(variation.current_count || {}).reduce((a, b) => a + b, 0),
-            businessId: businessId,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
+        let foundDuplicate = false;
+        if (parentRecipe && Array.isArray(parentRecipe.variations)) {
+          // Get all recipes referenced in the variations array
+          const allRecipes = await Recipe.findAll({ where: { businessId: businessId } });
+          for (const variationId of parentRecipe.variations) {
+            const vRecipe = allRecipes.find(r => r.id === variationId);
+            if (vRecipe && vRecipe.itemName === variationRecipe.itemName && vRecipe.id !== variationRecipe.id) {
+              foundDuplicate = true;
+              break;
+            }
+          }
         }
-        if (variationRecipe && variationRecipe.itemId) {
-          variationIds.push(variationRecipe.itemId);
+        if (foundDuplicate) {
+          await variationRecipe.destroy();
+          console.log(`Deleted duplicate variation recipe: ${variationRecipe.itemName}`);
+        } else {
+          variationIds.push(variationRecipe.id);
         }
       }
 
