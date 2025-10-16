@@ -158,9 +158,12 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
 
       // Handle modifiers: use modifier_list_info.modifier_overrides to get modifier_ids
       let modifiersArr = [];
-      for (const modListInfo of item.modifier_list_info) {
-        for (const override of modListInfo.modifier_overrides) {
-          modifiersArr.push(override.modifier_id);
+      if(item.modifier_list_info && item.modifier_list_info.length > 0) {
+        for (const modListInfo of item.modifier_list_info) {
+          if(!modListInfo.modifier_overrides) continue;
+          for (const override of modListInfo.modifier_overrides) {
+            modifiersArr.push(override.modifier_id);
+          }
         }
       }
 
