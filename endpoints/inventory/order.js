@@ -225,11 +225,22 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         });
         console.log(`Created new recipe: ${item.name || 'Unnamed'} with variations:`, variationIds, 'and modifiers:', modifierObjectsArr);
       } else {
-        let currentModifiers = Array.isArray(existingRecipe.modifiers) ? existingRecipe.modifiers : [];
+        // Parse currentModifiers if stored as JSON strings
+        let currentModifiers = Array.isArray(existingRecipe.modifiers) ? existingRecipe.modifiers.map(m => {
+          if (typeof m === 'string') {
+            try {
+              return JSON.parse(m);
+            } catch (e) {
+              console.warn('Failed to parse modifier JSON:', m);
+              return null;
+            }
+          }
+          return m;
+        }).filter(Boolean) : [];
         let updatedModifiers = [...currentModifiers];
         for (const modObj of modifierObjectsArr) {
-          // Only add if not already present by name
-          if (!updatedModifiers.includes(modObj)) {
+          // Only compare by name for deduplication
+          if (!updatedModifiers.some(m => m.name === modObj.name)) {
             updatedModifiers.push(modObj);
             console.log(`Appended new modifier to recipe ${item.name || 'Unnamed'}:`, modObj);
           } else {
@@ -250,6 +261,7 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
           modifiers: updatedModifiers,
           variations: updatedVariations,
         });
+        console.log(`Final updated modifiers for recipe ${item.name || 'Unnamed'}:`, updatedModifiers);
       }
     }
 
