@@ -174,50 +174,24 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         }
       }
 
-      let modifiersArr = [];
-      if(item.modifier_list_info && item.modifier_list_info.length > 0) {
-        for (const modListInfo of item.modifier_list_info) {
-          console.log('Processing modifier list:', modListInfo);
-          if(!modListInfo.modifier_overrides) continue;
-          for (const override of modListInfo.modifier_overrides) {
-            modifiersArr.push(override.modifier_id);
-          }
-        }
-      }
-
+      // Only use base modifiers from modifier_list_info
+      // Collect all modifier_list_ids for this item
       let modifierObjectsArr = [];
-      if (modifiersArr.length > 0) {
-        const modifierRes = await fetch(CATALOG_MODIFIER_URL, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        if (modifierRes.ok) {
-          const modifierData = await modifierRes.json();
-          const modifierObjects = modifierData.objects || [];
-          const modifierIdToName = {};
-          for (const obj of modifierObjects) {
-            if (obj.type === 'MODIFIER' && obj.id && obj.modifier_data && obj.modifier_data.name) {
-              modifierIdToName[obj.id] = obj.modifier_data.name;
+      if (item.modifier_list_info && item.modifier_list_info.length > 0 && typeof modifierObjects !== 'undefined') {
+        for (const modListInfo of item.modifier_list_info) {
+          const modifierListId = modListInfo.modifier_list_id;
+          // Fetch the full modifier list from the catalog
+          if (modifierListId) {
+            const modifierListObj = modifierObjects.find(obj => obj.id === modifierListId);
+            if (modifierListObj && modifierListObj.modifier_list_data && Array.isArray(modifierListObj.modifier_list_data.modifiers)) {
+              for (const mod of modifierListObj.modifier_list_data.modifiers) {
+                modifierObjectsArr.push(mod);
+              }
             }
           }
-          for (const modId of modifiersArr) {
-            const name = modifierIdToName[modId] || modId;
-            const ingredient = await Inventory.findOne({ where: { itemName: name, businessId } });
-            if (ingredient) {
-              modifierObjectsArr.push({ name, ingredientId: ingredient.id, quantity: 1 });
-            } else {
-              modifierObjectsArr.push({ name, ingredientId: null, quantity: 1 });
-              console.warn(`Modifier ingredient not found for name: ${name}`);
-            }
-          }
-        } else {
-          console.error('Failed to fetch modifier names from catalog');
         }
-      } else {
-        console.warn('No modifiers found for this item.');
       }
+        console.log(`Available modifiers for item '${item.name}':`, modifierObjectsArr.map(m => m.name || m.ingredientId));
       let existingRecipe = await Recipe.findOne({
         where: {
           itemName: item.name || 'Unnamed',
@@ -268,8 +242,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         });
       }
     }
-
-    console.log(`Synced ${inventoryItems.length} items from Square to DB.`);
   } catch (error) {
     console.error('Error syncing inventory:', error);
     throw error;
