@@ -11,7 +11,6 @@ const INVENTORY_URL = `${process.env.SQUARE_URL}/v2/inventory/batch-retrieve-cou
 function convertToBaseUnit(amount, fromUnit, toUnit, conversionRate = null) {
   if (toUnit === 'Count') {
     if (fromUnit !== 'Count') throw new Error('Invalid conversion: fromUnit must be Count if toUnit is Count');
-    // If conversionRate is provided, return the fraction of the package used
     if (conversionRate && conversionRate > 0) {
       return amount / conversionRate;
     }
@@ -38,7 +37,6 @@ function convertToBaseUnit(amount, fromUnit, toUnit, conversionRate = null) {
     };
     if (!toOunces[fromUnit]) throw new Error(`Invalid fromUnit for ounce conversion: ${fromUnit}`);
     let ounces = amount * toOunces[fromUnit];
-    // If conversionRate is provided, return the fraction of the package used in ounces
     if (conversionRate && conversionRate > 0) {
       return ounces / conversionRate;
     }
@@ -46,7 +44,6 @@ function convertToBaseUnit(amount, fromUnit, toUnit, conversionRate = null) {
   }
 }
 
-// Main sync function
 async function syncSquareInventoryToDB(accessToken, businessId) {
   try {
     const catalogRes = await fetch(CATALOG_URL, {
@@ -156,7 +153,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         }
       }
 
-      // Handle modifiers: use modifier_list_info.modifier_overrides to get modifier_ids
       let modifiersArr = [];
       if(item.modifier_list_info && item.modifier_list_info.length > 0) {
         for (const modListInfo of item.modifier_list_info) {
@@ -167,7 +163,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         }
       }
 
-      // After collecting modifier_ids, fetch their names from the MODIFIER catalog
       let modifierObjectsArr = [];
       if (modifiersArr.length > 0) {
         console.log('Fetching modifier names for IDs:', modifiersArr);
@@ -180,14 +175,12 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         if (modifierRes.ok) {
           const modifierData = await modifierRes.json();
           const modifierObjects = modifierData.objects || [];
-          // Build a map of modifier_id to name
           const modifierIdToName = {};
           for (const obj of modifierObjects) {
             if (obj.type === 'MODIFIER' && obj.id && obj.modifier_data && obj.modifier_data.name) {
               modifierIdToName[obj.id] = obj.modifier_data.name;
             }
           }
-          // For each modifier_id, create a modifier object with name, ingredientId, and quantity
           for (const modId of modifiersArr) {
             const name = modifierIdToName[modId] || modId;
             const ingredient = await Inventory.findOne({ where: { itemName: name, businessId } });
@@ -205,7 +198,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
       } else {
         console.log('No modifiers found for this item.');
       }
-      // Use modifierObjectsArr for storing in the recipe's modifiers field
       let existingRecipe = await Recipe.findOne({
         where: {
           itemName: item.name || 'Unnamed',
@@ -225,7 +217,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         });
         console.log(`Created new recipe: ${item.name || 'Unnamed'} with variations:`, variationIds, 'and modifiers:', modifierObjectsArr);
       } else {
-        // Parse currentModifiers if stored as JSON strings
         let currentModifiers = Array.isArray(existingRecipe.modifiers) ? existingRecipe.modifiers.map(m => {
           if (typeof m === 'string') {
             try {
@@ -239,12 +230,9 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         }).filter(Boolean) : [];
         let updatedModifiers = [...currentModifiers];
         for (const modObj of modifierObjectsArr) {
-          // Only compare by name for deduplication
           if (!updatedModifiers.some(m => m.name === modObj.name)) {
             updatedModifiers.push(modObj);
-            console.log(`Appended new modifier to recipe ${item.name || 'Unnamed'}:`, modObj);
           } else {
-            console.log(`Skipped duplicate modifier for recipe ${item.name || 'Unnamed'}:`, modObj);
           }
         }
         let currentVariations = Array.isArray(existingRecipe.variations) ? existingRecipe.variations : [];
@@ -252,27 +240,24 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         for (const variationId of variationIds) {
           if (!updatedVariations.includes(variationId)) {
             updatedVariations.push(variationId);
-            console.log(`Appended new variation to recipe ${item.name || 'Unnamed'}:`, variationId);
           } else {
-            console.log(`Skipped duplicate variation for recipe ${item.name || 'Unnamed'}:`, variationId);
           }
         }
         await existingRecipe.update({
           modifiers: updatedModifiers,
           variations: updatedVariations,
         });
-        console.log(`Final updated modifiers for recipe ${item.name || 'Unnamed'}:`, updatedModifiers);
+        console.log(`Final updated variations for recipe ${item.name || 'Unnamed'}:`, updatedVariations);
       }
     }
 
-    console.log(`✅ Synced ${inventoryItems.length} items from Square to DB.`);
+    console.log(`Synced ${inventoryItems.length} items from Square to DB.`);
   } catch (error) {
-    console.error('❌ Error syncing inventory:', error);
+    console.error('Error syncing inventory:', error);
     throw error;
   }
 }
 
-// Route to trigger sync
 router.post('/sync', authenticateJWT, async (req, res) => {
   try {
     const businessId = req.user.businessId;
@@ -288,7 +273,6 @@ router.post('/sync', authenticateJWT, async (req, res) => {
   }
 });
 
-// Updated getOrder to take the token
 async function getOrder(orderId, accessToken) {
   const response = await fetch(`${process.env.SQUARE_URL}/v2/orders/${orderId}`, {
     method: 'GET',
@@ -308,44 +292,37 @@ async function getOrder(orderId, accessToken) {
   return data.order;
 }
 
-// Webhook handler
 router.post('/webhook/order-updated', express.json(), async (req, res) => {
   const event = req.body;
 
-  // Send a 200 response to Square immediately
   res.status(200).send('OK');
 
   const orderUpdated = event.data?.object?.order_updated;
 
   if (!event || event.type !== 'order.updated' || !orderUpdated?.order_id) {
     console.error('Invalid payload received');
-    return; // Exit early since response is already sent
+    return;
   }
 
   const orderId = orderUpdated.order_id;
   const merchantId = event.merchant_id;
 
   try {
-    // Lookup business by Square merchant ID
     const business = await Business.findOne({ where: { squareMerchantId: merchantId } });
     if (!business || !business.squareAccessToken) {
       console.error('Business not found or missing access token');
       return;
     }
 
-    // Skip if already processed
     const existing = await ProcessedEvent.findByPk(orderId);
     if (existing) {
       console.log('Duplicate webhook ignored:', orderId);
       return;
     }
 
-    // Process the order (your logic here)
     console.log('Processing order:', orderId);
-    // Mark order as processed
     await ProcessedEvent.create({ orderId });
     const fullOrder = await getOrder(orderId, business.squareAccessToken);
-    // Mark order as processed
     const businessId = business.id;
 
     for (const item of fullOrder.line_items || []) {
@@ -357,17 +334,14 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         },
       });
 
-      // Track ingredient IDs processed by modifiers to skip in recipe/variation
       const processedIngredientIds = new Set();
 
-      // Process modifiers first
       if (Array.isArray(item.modifiers) && item.modifiers.length > 0 && dbItem && Array.isArray(dbItem.modifiers)) {
         for (const orderModifier of item.modifiers) {
           const recipeModifier = dbItem.modifiers.find(m => m.name === orderModifier.name);
           if (recipeModifier) {
             const ingredientId = recipeModifier.ingredientId;
             processedIngredientIds.add(ingredientId);
-            // Get the ingredient ID and quantity from the recipe's modifier object
             const ingredientQuantity = Number(recipeModifier.quantity) || 1;
             const ingredient = await Inventory.findOne({
               where: {
@@ -379,7 +353,6 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
               console.warn(`Modifier ingredient not found in DB for business ${businessId}: ${ingredientId}`);
               continue;
             }
-            // Use unit conversion for modifiers as well
             const modifierUnit = ingredient.baseUnit || 'Count';
             const baseUnit = ingredient.baseUnit || ingredient.unit || 'Count';
             const conversionRate = ingredient.conversionRate || null;
@@ -391,10 +364,8 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
               ingredient.itemName || '',
               conversionRate
             );
-            // Subtract the used quantity (in base unit)
             const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
             await ingredient.update({ quantityInStock: newQuantity });
-            // Only add to shopping list if quantity in stock is less than or at 50% of max
             if (newQuantity <= ingredient.max / 2) {
               const idx = currentItemIds.indexOf(ingredient.id);
               const needed = ingredient.max - newQuantity;
@@ -417,12 +388,9 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         }
       }
 
-      // If item.variation_name exists, find the recipe whose variations array references a recipe with that name
       if (item.variation_name) {
         console.log('Looking for variation:', item.variation_name);
-        // Get all recipes for this business
         const allRecipes = await Recipe.findAll({ where: { businessId } });
-        // Find the recipe whose variations array references a recipe with itemName === item.variation_name
         for (const recipe of allRecipes) {
           if (Array.isArray(recipe.variations) && recipe.variations.length > 0) {
             for (const variationId of recipe.variations) {
@@ -433,7 +401,6 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
               if (variationRecipe && variationRecipe.itemName === item.variation_name) {
                 dbItem = recipe;
                 console.log('Matched parent recipe:', recipe.itemName, 'with variation:', variationRecipe.itemName);
-                // Ensure the variation is in the recipe's variations array
                 if (!recipe.variations.includes(variationRecipe.itemId)) {
                   recipe.variations.push(variationRecipe.itemId);
                   await recipe.update({ variations: recipe.variations });
@@ -451,7 +418,6 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         continue;
       }
 
-      // Get or create the shopping list for this business
       let shoppingList = await ShoppingList.findOne({ where: { businessId } });
       if (!shoppingList) {
         shoppingList = await ShoppingList.create({
@@ -461,17 +427,14 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         });
       }
 
-      // Convert to mutable arrays for easier updates
       let currentItemIds = Array.isArray(shoppingList.itemIds) ? [...shoppingList.itemIds] : [];
       let currentQuantities = Array.isArray(shoppingList.quantities) ? [...shoppingList.quantities] : [];
 
-      // For each ingredient in the recipe
       if (dbItem.ingredients && dbItem.ingredients.length > 0) {
-        // Get the quantity of this item ordered from Square (default to 1 if missing)
         const itemQuantityOrdered = Number(item.quantity) || 1;
         for (let i = 0; i < dbItem.ingredients.length; i++) {
           const ingredientId = dbItem.ingredients[i];
-          if (processedIngredientIds.has(ingredientId)) continue; // Skip if already processed by modifier
+          if (processedIngredientIds.has(ingredientId)) continue;
           const ingredientQtyUsedRaw = dbItem.ingredientsQuantity?.[i] || 0;
           const ingredient = await Inventory.findOne({
             where: {
@@ -482,13 +445,10 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
 
           if (!ingredient) continue;
 
-          // Multiply by the quantity ordered from Square
           const totalQtyUsedRaw = ingredientQtyUsedRaw * itemQuantityOrdered;
 
-          // Convert recipe unit to base unit for subtraction
           const recipeUnit = dbItem.ingredientsUnit && dbItem.ingredientsUnit[i] ? dbItem.ingredientsUnit[i] : (ingredient.baseUnit || ingredient.unit);
           const baseUnit = ingredient.baseUnit || ingredient.unit;
-          // Pass conversionRate from inventory to conversion function
           let ingredientQtyUsed = convertToBaseUnit(
             totalQtyUsedRaw,
             recipeUnit,
@@ -497,30 +457,23 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
             ingredient.conversionRate || null
           );
 
-          // For shopping list, round up to the next whole number (can't buy a fraction)
           const ingredientQtyUsedWhole = Math.ceil(ingredientQtyUsed);
 
-          // Subtract the used quantity (in base unit)
           const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
           await ingredient.update({ quantityInStock: newQuantity });
 
-          // Only add to shopping list if quantity in stock is at or below 50% of max
           if (newQuantity <= ingredient.max / 2) {
             const idx = currentItemIds.indexOf(ingredientId);
             const needed = ingredient.max - newQuantity;
             if (idx === -1) {
-              // Not in shopping list: add enough to restock to max (rounded up)
               if (needed > 0) {
                 currentItemIds.push(ingredientId);
                 currentQuantities.push(Math.ceil(needed));
               }
             } else {
-              // Already in shopping list
               if (currentQuantities[idx] >= ingredient.max) {
-                // If already at max, just add the new ingredientQtyUsedWhole
                 currentQuantities[idx] += ingredientQtyUsedWhole;
               } else {
-                // Otherwise, set to needed to restock to max
                 if (needed > 0) {
                   currentQuantities[idx] = Math.ceil(needed);
                 }
@@ -530,7 +483,6 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         }
       }
 
-      // Update the shopping list in the DB
       await shoppingList.update({
         itemIds: currentItemIds,
         quantities: currentQuantities,
