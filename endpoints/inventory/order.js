@@ -194,7 +194,7 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
           console.error('Failed to fetch modifier names from catalog');
         }
       } else {
-        console.log('No modifiers found for this item.');
+        console.warn('No modifiers found for this item.');
       }
       let existingRecipe = await Recipe.findOne({
         where: {
@@ -244,7 +244,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
           modifiers: updatedModifiers,
           variations: updatedVariations,
         });
-        console.log(`Final updated variations for recipe ${item.name || 'Unnamed'}:`, variationIds);
       }
     }
 
@@ -317,7 +316,6 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
       return;
     }
 
-    console.log('Processing order:', orderId);
     await ProcessedEvent.create({ orderId });
     const fullOrder = await getOrder(orderId, business.squareAccessToken);
     const businessId = business.id;
@@ -386,22 +384,18 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
       }
 
       if (item.variation_name) {
-        console.log('Looking for variation:', item.variation_name);
         const allRecipes = await Recipe.findAll({ where: { businessId } });
         for (const recipe of allRecipes) {
           if (Array.isArray(recipe.variations) && recipe.variations.length > 0) {
             for (const variationId of recipe.variations) {
               const variationRecipe = allRecipes.find(r => r.itemId === variationId);
               if (variationRecipe) {
-                console.log('Checking variationRecipe:', variationRecipe.itemName, 'id:', variationRecipe.itemId);
               }
               if (variationRecipe && variationRecipe.itemName === item.variation_name) {
                 dbItem = recipe;
-                console.log('Matched parent recipe:', recipe.itemName, 'with variation:', variationRecipe.itemName);
                 if (!recipe.variations.includes(variationRecipe.itemId)) {
                   recipe.variations.push(variationRecipe.itemId);
                   await recipe.update({ variations: recipe.variations });
-                  console.log('Added variation', variationRecipe.itemId, 'to recipe', recipe.itemName);
                 }
                 break;
               }
@@ -486,7 +480,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
       });
     }
 
-    console.log('✅ Order processed:', orderId);
+    console.log('Order processed:', orderId);
   } catch (err) {
     console.error('Error processing Square order webhook:', err);
   }
