@@ -377,6 +377,8 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         },
       });
 
+      let parentRecipe = dbItem;
+
       // If item.variation_name exists, find the recipe whose variations array contains a recipe with that name
       if (item.variation_name) {
         // Get all recipes for this business
@@ -480,20 +482,28 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
 
       // If the item has modifiers, treat each modifier as an ingredient
       if (Array.isArray(item.modifiers) && item.modifiers.length > 0) {
+        // Use parentRecipe.modifiers array, parse each entry, and match by modifier.name
+        let parentModifiers = Array.isArray(parentRecipe?.modifiers)
+          ? parentRecipe.modifiers.map(m => (typeof m === 'string' ? JSON.parse(m) : m)).filter(Boolean)
+          : [];
         for (const modifier of item.modifiers) {
           const ingredientName = modifier.name;
-          const ingredientQuantity = Number(modifier.quantity) || 1;
-
-          // Find the ingredient in Inventory by name and businessId
+          // Find the matching modifier object in parentRecipe.modifiers
+          const matchedMod = parentModifiers.find(m => m.name === ingredientName);
+          if (!matchedMod || matchedMod.ingredientId === undefined || matchedMod.ingredientId === null) {
+            console.warn(`Modifier '${ingredientName}' not found or missing ingredientId in parentRecipe.modifiers.`);
+            continue;
+          }
+          const ingredientId = matchedMod.ingredientId;
+          const ingredientQuantity = Number(matchedMod.quantity) || 1;
           const ingredient = await Inventory.findOne({
             where: {
-              itemName: ingredientName,
+              id: ingredientId,
               businessId: businessId,
             },
           });
-
           if (!ingredient) {
-            console.warn(`Modifier ingredient not found in DB for business ${businessId}: ${ingredientName}`);
+            console.warn(`Modifier ingredient not found in DB for business ${businessId}: ${ingredientId}`);
             continue;
           }
 
