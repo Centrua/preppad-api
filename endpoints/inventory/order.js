@@ -331,120 +331,146 @@ async function getOrder(orderId, accessToken) {
 
 router.post('/webhook/order-updated', express.json(), async (req, res) => {
   const event = req.body;
-  console.log('Webhook received:', JSON.stringify(event, null, 2));
 
+  // Send a 200 response to Square immediately
   res.status(200).send('OK');
 
   const orderUpdated = event.data?.object?.order_updated;
-  console.log('orderUpdated:', orderUpdated);
 
   if (!event || event.type !== 'order.updated' || !orderUpdated?.order_id) {
-    console.error('Invalid payload received', { eventType: event.type, orderUpdated });
-    return;
+    console.error('Invalid payload received');
+    return; // Exit early since response is already sent
   }
 
   const orderId = orderUpdated.order_id;
   const merchantId = event.merchant_id;
-  console.log('Processing orderId:', orderId, 'merchantId:', merchantId);
 
   try {
+    // Lookup business by Square merchant ID
     const business = await Business.findOne({ where: { squareMerchantId: merchantId } });
-    console.log('Business lookup result:', business ? business.id : null);
     if (!business || !business.squareAccessToken) {
       console.error('Business not found or missing access token');
       return;
     }
 
+    // Skip if already processed
     const existing = await ProcessedEvent.findByPk(orderId);
     if (existing) {
       console.log('Duplicate webhook ignored:', orderId);
       return;
     }
 
+    // Process the order (your logic here)
+    console.log('Processing order:', orderId);
+    // Mark order as processed
     await ProcessedEvent.create({ orderId });
     const fullOrder = await getOrder(orderId, business.squareAccessToken);
-    console.log('Full order:', JSON.stringify(fullOrder, null, 2));
+    // Mark order as processed
     const businessId = business.id;
 
     for (const item of fullOrder.line_items || []) {
-      console.log('Processing line item:', JSON.stringify(item, null, 2));
       const itemName = item.name;
-      let dbItem = null;
-      // If variation_name is present, always use the variation recipe
+      let dbItem = await Recipe.findOne({
+        where: {
+          itemName: itemName,
+          businessId: businessId,
+        },
+      });
+
+      // If item.variation_name exists, find the recipe whose variations array contains a recipe with that name
       if (item.variation_name) {
+        // Get all recipes for this business
         const allRecipes = await Recipe.findAll({ where: { businessId } });
-        dbItem = allRecipes.find(r => r.itemName === item.variation_name);
-        console.log('Variation recipe lookup result:', dbItem ? dbItem.itemId : null);
-      } else {
-        dbItem = await Recipe.findOne({
-          where: {
-            itemName: itemName,
-            businessId: businessId,
-          },
-        });
-        console.log('Recipe lookup result:', dbItem ? dbItem.itemId : null);
+        // Find the recipe whose variations array references a recipe with itemName === item.variation_name
+        for (const recipe of allRecipes) {
+          if (Array.isArray(recipe.variations) && recipe.variations.length > 0) {
+            // Find the referenced recipe by id and check its name
+            for (const variationId of recipe.variations) {
+              const variationRecipe = allRecipes.find(r => r.itemId === variationId);
+              if (variationRecipe && variationRecipe?.itemName === item.variation_name) {
+                dbItem = variationRecipe;
+                break;
+              }
+            }
+          }
+        }
       }
 
-      // Always parse modifiers as objects
-      let parsedModifiers = Array.isArray(dbItem?.modifiers)
-        ? dbItem.modifiers.map(m => (typeof m === 'string' ? JSON.parse(m) : m)).filter(Boolean)
-        : [];
-      const processedIngredientIds = new Set();
+      if (!dbItem) {
+        console.warn(`Item not found in DB for business ${businessId}: ${itemName}`);
+        continue;
+      }
 
-      // 1. Process modifiers first
-      if (Array.isArray(item.modifiers) && item.modifiers.length > 0 && dbItem && parsedModifiers.length > 0) {
-        for (const orderModifier of item.modifiers) {
-          console.log('Processing orderModifier:', orderModifier);
-          const recipeModifier = parsedModifiers.find(m => m.name === orderModifier.name);
-          console.log('Matched recipeModifier:', recipeModifier);
-          if (recipeModifier) {
-            const ingredientId = recipeModifier.ingredientId;
-            if (ingredientId === undefined || ingredientId === null) {
-              console.warn(`Skipping modifier with invalid ingredientId:`, recipeModifier);
-              continue;
-            }
-            processedIngredientIds.add(ingredientId);
-            const ingredientQuantity = Number(recipeModifier.quantity) || 1;
-            const ingredient = await Inventory.findOne({
-              where: {
-                id: ingredientId,
-                businessId: businessId,
-              },
-            });
-            console.log('Modifier ingredient lookup:', ingredient);
-            if (!ingredient) {
-              console.warn(`Modifier ingredient not found in DB for business ${businessId}: ${ingredientId}`);
-              continue;
-            }
-            const modifierUnit = ingredient.baseUnit || 'Count';
-            const baseUnit = ingredient.baseUnit || ingredient.unit || 'Count';
-            const conversionRate = ingredient.conversionRate || null;
-            const fromUnit = recipeModifier.unit || modifierUnit;
-            const ingredientQtyUsed = convertToBaseUnit(
-              ingredientQuantity,
-              fromUnit,
-              baseUnit,
-              ingredient.itemName || '',
-              conversionRate
-            );
-            const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
-            console.log(`Updating ingredient ${ingredient.itemName} (${ingredient.id}) quantity from ${ingredient.quantityInStock} to ${newQuantity}`);
-            await ingredient.update({ quantityInStock: newQuantity });
-            if (newQuantity <= ingredient.max / 2) {
-              const idx = currentItemIds.indexOf(ingredient.id);
-              const needed = ingredient.max - newQuantity;
-              if (idx === -1) {
-                if (needed > 0) {
-                  currentItemIds.push(ingredient.id);
-                  currentQuantities.push(Math.ceil(needed));
-                }
+      // Get or create the shopping list for this business
+      let shoppingList = await ShoppingList.findOne({ where: { businessId } });
+      if (!shoppingList) {
+        shoppingList = await ShoppingList.create({
+          businessId,
+          itemIds: [],
+          quantities: [],
+        });
+      }
+
+      // Convert to mutable arrays for easier updates
+      let currentItemIds = Array.isArray(shoppingList.itemIds) ? [...shoppingList.itemIds] : [];
+      let currentQuantities = Array.isArray(shoppingList.quantities) ? [...shoppingList.quantities] : [];
+
+      // For each ingredient in the recipe
+      if (dbItem.ingredients && dbItem.ingredients.length > 0) {
+        // Get the quantity of this item ordered from Square (default to 1 if missing)
+        const itemQuantityOrdered = Number(item.quantity) || 1;
+        for (let i = 0; i < dbItem.ingredients.length; i++) {
+          const ingredientId = dbItem.ingredients[i];
+          const ingredientQtyUsedRaw = dbItem.ingredientsQuantity?.[i] || 0;
+          const ingredient = await Inventory.findOne({
+            where: {
+              id: ingredientId,
+              businessId: businessId,
+            },
+          });
+
+          if (!ingredient) continue;
+
+          // Multiply by the quantity ordered from Square
+          const totalQtyUsedRaw = ingredientQtyUsedRaw * itemQuantityOrdered;
+
+          // Convert recipe unit to base unit for subtraction
+          const recipeUnit = dbItem.ingredientsUnit && dbItem.ingredientsUnit[i] ? dbItem.ingredientsUnit[i] : (ingredient.baseUnit || ingredient.unit);
+          const baseUnit = ingredient.baseUnit || ingredient.unit;
+          // Pass conversionRate from inventory to conversion function
+          let ingredientQtyUsed = convertToBaseUnit(
+            totalQtyUsedRaw,
+            recipeUnit,
+            baseUnit,
+            ingredient.conversionRate || null
+          );
+
+          // For shopping list, round up to the next whole number (can't buy a fraction)
+          const ingredientQtyUsedWhole = Math.ceil(ingredientQtyUsed);
+
+          // Subtract the used quantity (in base unit)
+          const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
+          await ingredient.update({ quantityInStock: newQuantity });
+
+          // Only add to shopping list if quantity in stock is at or below 50% of max
+          if (newQuantity <= ingredient.max / 2) {
+            const idx = currentItemIds.indexOf(ingredientId);
+            const needed = ingredient.max - newQuantity;
+            if (idx === -1) {
+              // Not in shopping list: add enough to restock to max (rounded up)
+              if (needed > 0) {
+                currentItemIds.push(ingredientId);
+                currentQuantities.push(Math.ceil(needed));
+              }
+            } else {
+              // Already in shopping list
+              if (currentQuantities[idx] >= ingredient.max) {
+                // If already at max, just add the new ingredientQtyUsedWhole
+                currentQuantities[idx] += ingredientQtyUsedWhole;
               } else {
-                if (currentQuantities[idx] >= ingredient.max) {
-                  currentQuantities[idx] += Math.ceil(ingredientQtyUsed);
-                } else {
-                  if (needed > 0) {
-                    currentQuantities[idx] = Math.ceil(needed);
-                  }
+                // Otherwise, set to needed to restock to max
+                if (needed > 0) {
+                  currentQuantities[idx] = Math.ceil(needed);
                 }
               }
             }
@@ -452,43 +478,43 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         }
       }
 
-      // 2. Process the rest of the variation recipe's ingredients, skipping those already processed by modifiers
-      if (dbItem && Array.isArray(dbItem.ingredients)) {
-        for (const ingredientEntry of dbItem.ingredients) {
-          const ingredientId = ingredientEntry.ingredientId;
-          if (ingredientId === undefined || ingredientId === null) {
-            console.warn(`Skipping variation ingredient with invalid ingredientId:`, ingredientEntry);
-            continue;
-          }
-          if (processedIngredientIds.has(ingredientId)) {
-            console.log(`Skipping ingredient ${ingredientId} (already processed by modifier)`);
-            continue;
-          }
-          const ingredientQuantity = Number(ingredientEntry.quantity) || 1;
+      // If the item has modifiers, treat each modifier as an ingredient
+      if (Array.isArray(item.modifiers) && item.modifiers.length > 0) {
+        for (const modifier of item.modifiers) {
+          const ingredientName = modifier.name;
+          const ingredientQuantity = Number(modifier.quantity) || 1;
+
+          // Find the ingredient in Inventory by name and businessId
           const ingredient = await Inventory.findOne({
             where: {
-              id: ingredientId,
+              itemName: ingredientName,
               businessId: businessId,
             },
           });
-          console.log('Variation ingredient lookup:', ingredient);
+
           if (!ingredient) {
-            console.warn(`Variation ingredient not found in DB for business ${businessId}: ${ingredientId}`);
+            console.warn(`Modifier ingredient not found in DB for business ${businessId}: ${ingredientName}`);
             continue;
           }
+
+          // Use unit conversion for modifiers as well
+          const modifierUnit = ingredient.allowedUnits && ingredient.allowedUnits[0] || ingredient.baseUnit || 'Count';
           const baseUnit = ingredient.baseUnit || ingredient.unit || 'Count';
-          const fromUnit = ingredientEntry.unit || baseUnit;
           const conversionRate = ingredient.conversionRate || null;
+          // If the modifier has a unit, use it; otherwise default to ingredient's unit
+          const fromUnit = modifier.unit || modifierUnit;
           const ingredientQtyUsed = convertToBaseUnit(
             ingredientQuantity,
             fromUnit,
             baseUnit,
-            ingredient.itemName || '',
             conversionRate
           );
+
+          // Subtract the used quantity (in base unit)
           const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
-          console.log(`Updating ingredient ${ingredient.itemName} (${ingredient.id}) quantity from ${ingredient.quantityInStock} to ${newQuantity}`);
           await ingredient.update({ quantityInStock: newQuantity });
+
+          // Only add to shopping list if quantity in stock is at or below 50% of max
           if (newQuantity <= ingredient.max / 2) {
             const idx = currentItemIds.indexOf(ingredient.id);
             const needed = ingredient.max - newQuantity;
@@ -510,87 +536,13 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         }
       }
 
-      if (!dbItem) {
-        console.warn(`Item not found in DB for business ${businessId}: ${itemName}`);
-        continue;
-      }
-
-      let shoppingList = await ShoppingList.findOne({ where: { businessId } });
-      if (!shoppingList) {
-        shoppingList = await ShoppingList.create({
-          businessId,
-          itemIds: [],
-          quantities: [],
-        });
-        console.log('Created new shoppingList for business:', businessId);
-      }
-
-      let currentItemIds = Array.isArray(shoppingList.itemIds) ? [...shoppingList.itemIds] : [];
-      let currentQuantities = Array.isArray(shoppingList.quantities) ? [...shoppingList.quantities] : [];
-
-      if (dbItem.ingredients && dbItem.ingredients.length > 0) {
-        const itemQuantityOrdered = Number(item.quantity) || 1;
-        for (let i = 0; i < dbItem.ingredients.length; i++) {
-          const ingredientId = dbItem.ingredients[i];
-          if (processedIngredientIds.has(ingredientId)) continue;
-          const ingredientQtyUsedRaw = dbItem.ingredientsQuantity?.[i] || 0;
-          const ingredient = await Inventory.findOne({
-            where: {
-              id: ingredientId,
-              businessId: businessId,
-            },
-          });
-          console.log('Ingredient lookup for recipe:', ingredient);
-
-          if (!ingredient) continue;
-
-          const totalQtyUsedRaw = ingredientQtyUsedRaw * itemQuantityOrdered;
-
-          const recipeUnit = dbItem.ingredientsUnit && dbItem.ingredientsUnit[i] ? dbItem.ingredientsUnit[i] : (ingredient.baseUnit || ingredient.unit);
-          const baseUnit = ingredient.baseUnit || ingredient.unit;
-          let ingredientQtyUsed = convertToBaseUnit(
-            totalQtyUsedRaw,
-            recipeUnit,
-            baseUnit,
-            ingredient.itemName || '',
-            ingredient.conversionRate || null
-          );
-
-          const ingredientQtyUsedWhole = Math.ceil(ingredientQtyUsed);
-
-          const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
-          console.log(`Updating ingredient ${ingredient.itemName} (${ingredient.id}) quantity from ${ingredient.quantityInStock} to ${newQuantity}`);
-          await ingredient.update({ quantityInStock: newQuantity });
-
-          if (newQuantity <= ingredient.max / 2) {
-            const idx = currentItemIds.indexOf(ingredientId);
-            const needed = ingredient.max - newQuantity;
-            if (idx === -1) {
-              if (needed > 0) {
-                currentItemIds.push(ingredientId);
-                currentQuantities.push(Math.ceil(needed));
-              }
-            } else {
-              if (currentQuantities[idx] >= ingredient.max) {
-                currentQuantities[idx] += ingredientQtyUsedWhole;
-              } else {
-                if (needed > 0) {
-                  currentQuantities[idx] = Math.ceil(needed);
-                }
-              }
-            }
-          }
-        }
-      }
-
+      // Update the shopping list in the DB
       await shoppingList.update({
         itemIds: currentItemIds,
         quantities: currentQuantities,
       });
-      console.log('Updated shoppingList:', shoppingList.itemIds, shoppingList.quantities);
     }
-
-    console.log('Order processed:', orderId);
+    console.log('Updated shoppingList:', shoppingList.itemIds, shoppingList.quantities);
   } catch (err) {
     console.error('Error processing Square order webhook:', err);
   }
