@@ -480,6 +480,69 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
         }
       }
 
+      // Process parent recipe for shared ingredients
+      if (parentRecipe.ingredients && parentRecipe.ingredients.length > 0) {
+        // Get the quantity of this item ordered from Square (default to 1 if missing)
+        const itemQuantityOrdered = Number(item.quantity) || 1;
+        for (let i = 0; i < parentRecipe.ingredients.length; i++) {
+          const ingredientId = parentRecipe.ingredients[i];
+          const ingredientQtyUsedRaw = parentRecipe.ingredientsQuantity?.[i] || 0;
+          const ingredient = await Inventory.findOne({
+            where: {
+              id: ingredientId,
+              businessId: businessId,
+            },
+          });
+
+          if (!ingredient) continue;
+
+          // Multiply by the quantity ordered from Square
+          const totalQtyUsedRaw = ingredientQtyUsedRaw * itemQuantityOrdered;
+
+          // Convert recipe unit to base unit for subtraction
+          const recipeUnit = parentRecipe.ingredientsUnit && parentRecipe.ingredientsUnit[i] ? parentRecipe.ingredientsUnit[i] : (ingredient.baseUnit || ingredient.unit);
+          const baseUnit = ingredient.baseUnit || ingredient.unit;
+          // Pass conversionRate from inventory to conversion function
+          let ingredientQtyUsed = convertToBaseUnit(
+            totalQtyUsedRaw,
+            recipeUnit,
+            baseUnit,
+            ingredient.conversionRate || null
+          );
+
+          // For shopping list, round up to the next whole number (can't buy a fraction)
+          const ingredientQtyUsedWhole = Math.ceil(ingredientQtyUsed);
+
+          // Subtract the used quantity (in base unit)
+          const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
+          await ingredient.update({ quantityInStock: newQuantity });
+
+          // Only add to shopping list if quantity in stock is at or below 50% of max
+          if (newQuantity <= ingredient.max / 2) {
+            const idx = currentItemIds.indexOf(ingredientId);
+            const needed = ingredient.max - newQuantity;
+            if (idx === -1) {
+              // Not in shopping list: add enough to restock to max (rounded up)
+              if (needed > 0) {
+                currentItemIds.push(ingredientId);
+                currentQuantities.push(Math.ceil(needed));
+              }
+            } else {
+              // Already in shopping list
+              if (currentQuantities[idx] >= ingredient.max) {
+                // If already at max, just add the new ingredientQtyUsedWhole
+                currentQuantities[idx] += ingredientQtyUsedWhole;
+              } else {
+                // Otherwise, set to needed to restock to max
+                if (needed > 0) {
+                  currentQuantities[idx] = Math.ceil(needed);
+                }
+              }
+            }
+          }
+        }
+      }
+
       // If the item has modifiers, treat each modifier as an ingredient
       if (Array.isArray(item.modifiers) && item.modifiers.length > 0) {
         // Use parentRecipe.modifiers array, parse each entry, and match by modifier.name
