@@ -186,7 +186,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
             const ingredient = await Inventory.findOne({ where: { itemName: name, businessId } });
             if (ingredient) {
               modifierObjectsArr.push({ name, ingredientId: ingredient.id, quantity: 1 });
-              console.log(`Added modifier: { name: ${name}, ingredientId: ${ingredient.id}, quantity: 1 }`);
             } else {
               modifierObjectsArr.push({ name, ingredientId: null, quantity: 1 });
               console.warn(`Modifier ingredient not found for name: ${name}`);
@@ -215,7 +214,6 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
           createdAt: new Date(),
           updatedAt: new Date(),
         });
-        console.log(`Created new recipe: ${item.name || 'Unnamed'} with variations:`, variationIds, 'and modifiers:', modifierObjectsArr);
       } else {
         let currentModifiers = Array.isArray(existingRecipe.modifiers) ? existingRecipe.modifiers.map(m => {
           if (typeof m === 'string') {
@@ -247,7 +245,7 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
           modifiers: updatedModifiers,
           variations: updatedVariations,
         });
-        console.log(`Final updated variations for recipe ${item.name || 'Unnamed'}:`, updatedVariations);
+        console.log(`Final updated variations for recipe ${item.name || 'Unnamed'}:`, variationIds);
       }
     }
 
