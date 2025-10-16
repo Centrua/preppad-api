@@ -9,41 +9,41 @@ const CATALOG_MODIFIER_URL = `${process.env.SQUARE_URL}/v2/catalog/list?types=MO
 const INVENTORY_URL = `${process.env.SQUARE_URL}/v2/inventory/batch-retrieve-counts`;
 
 function convertToBaseUnit(amount, fromUnit, toUnit, conversionRate = null) {
-    if (toUnit === 'Count') {
-      if (fromUnit !== 'Count') throw new Error('Invalid conversion: fromUnit must be Count if toUnit is Count');
-      // If conversionRate is provided, return the fraction of the package used
-      if (conversionRate && conversionRate > 0) {
-        return amount / conversionRate;
-      }
-      return amount;
+  if (toUnit === 'Count') {
+    if (fromUnit !== 'Count') throw new Error('Invalid conversion: fromUnit must be Count if toUnit is Count');
+    // If conversionRate is provided, return the fraction of the package used
+    if (conversionRate && conversionRate > 0) {
+      return amount / conversionRate;
     }
+    return amount;
+  }
 
-    if (toUnit === 'Ounce') {
-      const toOunces = {
-        'Teaspoons': 1 / 6,        // 6 tsp = 1 oz
-        'Tablespoons': 1 / 2,      // 2 tbsp = 1 oz
-        'Fluid Ounces': 1,         // 1 fl oz = 1 oz
-        'Dry Ounces': 1,           // 1 dry oz = 1 oz
-        'Cups': 8,                 // 1 cup = 8 oz
-        'Pints': 16,               // 1 pint = 16 oz
-        'Quarts': 32,              // 1 quart = 32 oz
-        'Gallons': 128,            // 1 gallon = 128 oz
-        'Ounce': 1,                // already ounces
-        'Milliliters': 0.033814,   // 1 ml = 0.033814 oz (US fluid)
-        'Liters': 33.814,          // 1 l = 33.814 oz (US fluid)
-        'Grams': 0.035274,         // 1 g = 0.035274 oz (weight)
-        'Kilograms': 35.274,       // 1 kg = 35.274 oz (weight)
-        'Milligrams': 0.000035274, // 1 mg = 0.000035274 oz (weight)
-        'Pounds': 16,              // 1 lb = 16 oz (weight)
-      };
-      if (!toOunces[fromUnit]) throw new Error(`Invalid fromUnit for ounce conversion: ${fromUnit}`);
-      let ounces = amount * toOunces[fromUnit];
-      // If conversionRate is provided, return the fraction of the package used in ounces
-      if (conversionRate && conversionRate > 0) {
-        return ounces / conversionRate;
-      }
-      return ounces;
+  if (toUnit === 'Ounce') {
+    const toOunces = {
+      'Teaspoons': 1 / 6,        // 6 tsp = 1 oz
+      'Tablespoons': 1 / 2,      // 2 tbsp = 1 oz
+      'Fluid Ounces': 1,         // 1 fl oz = 1 oz
+      'Dry Ounces': 1,           // 1 dry oz = 1 oz
+      'Cups': 8,                 // 1 cup = 8 oz
+      'Pints': 16,               // 1 pint = 16 oz
+      'Quarts': 32,              // 1 quart = 32 oz
+      'Gallons': 128,            // 1 gallon = 128 oz
+      'Ounce': 1,                // already ounces
+      'Milliliters': 0.033814,   // 1 ml = 0.033814 oz (US fluid)
+      'Liters': 33.814,          // 1 l = 33.814 oz (US fluid)
+      'Grams': 0.035274,         // 1 g = 0.035274 oz (weight)
+      'Kilograms': 35.274,       // 1 kg = 35.274 oz (weight)
+      'Milligrams': 0.000035274, // 1 mg = 0.000035274 oz (weight)
+      'Pounds': 16,              // 1 lb = 16 oz (weight)
+    };
+    if (!toOunces[fromUnit]) throw new Error(`Invalid fromUnit for ounce conversion: ${fromUnit}`);
+    let ounces = amount * toOunces[fromUnit];
+    // If conversionRate is provided, return the fraction of the package used in ounces
+    if (conversionRate && conversionRate > 0) {
+      return ounces / conversionRate;
     }
+    return ounces;
+  }
 }
 
 // Main sync function
@@ -156,17 +156,11 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
         }
       }
 
-      // Handle modifiers: use item_data.modifier_list_info.modifier_overrides to get modifier_ids
+      // Handle modifiers: use modifier_list_info.modifier_overrides to get modifier_ids
       let modifiersArr = [];
-      if (item.item_data && item.item_data.modifier_list_info && Array.isArray(item.item_data.modifier_list_info)) {
-        for (const modListInfo of item.item_data.modifier_list_info) {
-          if (modListInfo.modifier_overrides && Array.isArray(modListInfo.modifier_overrides)) {
-            for (const override of modListInfo.modifier_overrides) {
-              if (override.modifier_id) {
-                modifiersArr.push(override.modifier_id);
-              }
-            }
-          }
+      for (const modListInfo of item.modifier_list_info) {
+        for (const override of modListInfo.modifier_overrides) {
+          modifiersArr.push(override.modifier_id);
         }
       }
 
