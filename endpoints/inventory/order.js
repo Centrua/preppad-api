@@ -5,7 +5,7 @@ const { authenticateJWT } = require('../../middleware/authenticate');
 const db = require('../../models');
 
 const CATALOG_URL = `${process.env.SQUARE_URL}/v2/catalog/list?types=ITEM`;
-const CATALOG_MODIFIER_URL = `${process.env.SQUARE_URL}/v2/catalog/list?types=MODIFIER`;
+const CATALOG_MODIFIER_LIST_URL = `${process.env.SQUARE_URL}/v2/catalog/list?types=MODIFIER_LIST`;
 const INVENTORY_URL = `${process.env.SQUARE_URL}/v2/inventory/batch-retrieve-counts`;
 
 function convertToBaseUnit(amount, fromUnit, toUnit, conversionRate = null) {
@@ -119,6 +119,37 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
       });
     });
 
+    // Fetch all modifier lists from Square
+    const modifierListRes = await fetch(CATALOG_MODIFIER_LIST_URL, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    let modifierLists = [];
+    if (modifierListRes.ok) {
+      const modifierListData = await modifierListRes.json();
+      modifierLists = modifierListData.objects || [];
+    } else {
+      console.error('Failed to fetch modifier lists from Square');
+    }
+
+    // Map: recipeName -> array of modifier objects
+    const recipeModifiersMap = {};
+    for (const modifierListObj of modifierLists) {
+      if (!modifierListObj.modifier_list_data || !modifierListObj.modifier_list_data.name) continue;
+      const recipeName = modifierListObj.modifier_list_data.name;
+      if (!Array.isArray(modifierListObj.modifier_list_data.modifiers)) continue;
+      for (const mod of modifierListObj.modifier_list_data.modifiers) {
+        const modName = mod.modifier_data && mod.modifier_data.name ? mod.modifier_data.name : undefined;
+        if (!modName) continue;
+        let ingredient = await Inventory.findOne({ where: { itemName: modName, businessId } });
+        const modObj = { name: modName, ingredientId: ingredient ? ingredient.id : null, quantity: 1 };
+        if (!recipeModifiersMap[recipeName]) recipeModifiersMap[recipeName] = [];
+        recipeModifiersMap[recipeName].push(modObj);
+      }
+    }
+
     for (const item of inventoryItems) {
       let totalQuantity = 0;
       item.variations.forEach(variation => {
@@ -176,33 +207,23 @@ async function syncSquareInventoryToDB(accessToken, businessId) {
 
       // Only use base modifiers from modifier_list_info
       // Collect all modifier_list_ids for this item
+      // Build modifiers for this recipe by matching modifier_list_info.modifier_list_id to MODIFIER_LIST id
       let modifierObjectsArr = [];
-      console.log(`modifier_list_info for item '${item.name}':`, item.modifier_list_info);
-      if (item.modifier_list_info && item.modifier_list_info.length > 0 && typeof modifierObjects !== 'undefined') {
+      if (item.modifier_list_info && item.modifier_list_info.length > 0 && modifierLists.length > 0) {
         for (const modListInfo of item.modifier_list_info) {
           const modifierListId = modListInfo.modifier_list_id;
-          console.log(`Processing modifierListId: ${modifierListId} for item '${item.name}'`);
-          if (modifierListId) {
-            const modifierListObj = modifierObjects.find(obj => obj.id === modifierListId);
-            if (modifierListObj) {
-              console.log(`Found modifierListObj for id ${modifierListId}:`, modifierListObj);
-            } else {
-              console.warn(`No modifierListObj found for id ${modifierListId}`);
-            }
-            if (modifierListObj && modifierListObj.modifier_list_data && Array.isArray(modifierListObj.modifier_list_data.modifiers)) {
-              for (const mod of modifierListObj.modifier_list_data.modifiers) {
-                let ingredient = await Inventory.findOne({ where: { itemName: mod.name, businessId } });
-                console.log(`Mapping modifier '${mod.name}' (id: ${mod.id}) to ingredient:`, ingredient ? ingredient.id : null);
-                modifierObjectsArr.push({ name: mod.name, ingredientId: ingredient ? ingredient.id : null, quantity: 1 });
-              }
-            } else if (modifierListObj) {
-              console.warn(`modifierListObj for id ${modifierListId} has no modifiers array.`);
+          const modifierListObj = modifierLists.find(obj => obj.id === modifierListId);
+          if (modifierListObj && modifierListObj.modifier_list_data && Array.isArray(modifierListObj.modifier_list_data.modifiers)) {
+            for (const mod of modifierListObj.modifier_list_data.modifiers) {
+              const modName = mod.modifier_data && mod.modifier_data.name ? mod.modifier_data.name : undefined;
+              if (!modName) continue;
+              let ingredient = await Inventory.findOne({ where: { itemName: modName, businessId } });
+              modifierObjectsArr.push({ name: modName, ingredientId: ingredient ? ingredient.id : null, quantity: 1 });
             }
           }
         }
-      } else {
-        console.warn(`No modifier_list_info or modifierObjects for item '${item.name}'`);
       }
+      console.log(`Modifiers for recipe '${item.name}':`, modifierObjectsArr);
       if (item.modifier_list_info && item.modifier_list_info.length > 0 && typeof modifierObjects !== 'undefined') {
         for (const modListInfo of item.modifier_list_info) {
           const modifierListId = modListInfo.modifier_list_id;
