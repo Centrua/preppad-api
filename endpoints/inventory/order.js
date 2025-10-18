@@ -417,6 +417,78 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
       let currentItemIds = Array.isArray(shoppingList.itemIds) ? [...shoppingList.itemIds] : [];
       let currentQuantities = Array.isArray(shoppingList.quantities) ? [...shoppingList.quantities] : [];
 
+      let skipIngredients = [];
+
+      // If the item has modifiers, treat each modifier as an ingredient
+      if (Array.isArray(item.modifiers) && item.modifiers.length > 0) {
+        // Use parentRecipe.modifiers array, parse each entry, and match by modifier.name
+        let parentModifiers = Array.isArray(parentRecipe?.modifiers)
+          ? parentRecipe.modifiers.map(m => (typeof m === 'string' ? JSON.parse(m) : m)).filter(Boolean)
+          : [];
+        for (const modifier of item.modifiers) {
+          const ingredientName = modifier.name;
+          // Find the matching modifier object in parentRecipe.modifiers
+          const matchedMod = parentModifiers.find(m => m.name === ingredientName);
+          if (!matchedMod || matchedMod.ingredientId === undefined || matchedMod.ingredientId === null) {
+            console.warn(`Modifier '${ingredientName}' not found or missing ingredientId in parentRecipe.modifiers.`);
+            continue;
+          }
+          const ingredientId = matchedMod.ingredientId;
+          const ingredientQuantity = Number(matchedMod.quantity) || 1;
+          const ingredient = await Inventory.findOne({
+            where: {
+              id: ingredientId,
+              businessId: businessId,
+            },
+          });
+          if (!ingredient) {
+            console.warn(`Modifier ingredient not found in DB for business ${businessId}: ${ingredientId}`);
+            continue;
+          }
+
+          if(ingredientQuantity === 0) {
+            skipIngredients.push(ingredientId);
+          }
+
+          // Use unit conversion for modifiers as well
+          const modifierUnit = ingredient.allowedUnits && ingredient.allowedUnits[0] || ingredient.baseUnit || 'Count';
+          const baseUnit = ingredient.baseUnit || ingredient.unit || 'Count';
+          const conversionRate = ingredient.conversionRate || null;
+          // If the modifier has a unit, use it; otherwise default to ingredient's unit
+          const fromUnit = modifier.unit || modifierUnit;
+          const ingredientQtyUsed = convertToBaseUnit(
+            ingredientQuantity,
+            fromUnit,
+            baseUnit,
+            conversionRate
+          );
+
+          // Subtract the used quantity (in base unit)
+          const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
+          await ingredient.update({ quantityInStock: newQuantity });
+
+          // Only add to shopping list if quantity in stock is at or below 50% of max
+          if (newQuantity <= ingredient.max / 2) {
+            const idx = currentItemIds.indexOf(ingredient.id);
+            const needed = ingredient.max - newQuantity;
+            if (idx === -1) {
+              if (needed > 0) {
+                currentItemIds.push(ingredient.id);
+                currentQuantities.push(Math.ceil(needed));
+              }
+            } else {
+              if (currentQuantities[idx] >= ingredient.max) {
+                currentQuantities[idx] += Math.ceil(ingredientQtyUsed);
+              } else {
+                if (needed > 0) {
+                  currentQuantities[idx] = Math.ceil(needed);
+                }
+              }
+            }
+          }
+        }
+      }
+
       // For each ingredient in the recipe
       if (dbItem.ingredients && dbItem.ingredients.length > 0) {
         // Get the quantity of this item ordered from Square (default to 1 if missing)
@@ -431,7 +503,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
             },
           });
 
-          if (!ingredient) continue;
+          if (!ingredient || skipIngredients.includes(ingredientId)) continue;
 
           // Multiply by the quantity ordered from Square
           const totalQtyUsedRaw = ingredientQtyUsedRaw * itemQuantityOrdered;
@@ -494,7 +566,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
             },
           });
 
-          if (!ingredient) continue;
+          if (!ingredient || skipIngredients.includes(ingredientId)) continue;
 
           // Multiply by the quantity ordered from Square
           const totalQtyUsedRaw = ingredientQtyUsedRaw * itemQuantityOrdered;
@@ -534,72 +606,6 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
                 currentQuantities[idx] += ingredientQtyUsedWhole;
               } else {
                 // Otherwise, set to needed to restock to max
-                if (needed > 0) {
-                  currentQuantities[idx] = Math.ceil(needed);
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // If the item has modifiers, treat each modifier as an ingredient
-      if (Array.isArray(item.modifiers) && item.modifiers.length > 0) {
-        // Use parentRecipe.modifiers array, parse each entry, and match by modifier.name
-        let parentModifiers = Array.isArray(parentRecipe?.modifiers)
-          ? parentRecipe.modifiers.map(m => (typeof m === 'string' ? JSON.parse(m) : m)).filter(Boolean)
-          : [];
-        for (const modifier of item.modifiers) {
-          const ingredientName = modifier.name;
-          // Find the matching modifier object in parentRecipe.modifiers
-          const matchedMod = parentModifiers.find(m => m.name === ingredientName);
-          if (!matchedMod || matchedMod.ingredientId === undefined || matchedMod.ingredientId === null) {
-            console.warn(`Modifier '${ingredientName}' not found or missing ingredientId in parentRecipe.modifiers.`);
-            continue;
-          }
-          const ingredientId = matchedMod.ingredientId;
-          const ingredientQuantity = Number(matchedMod.quantity) || 1;
-          const ingredient = await Inventory.findOne({
-            where: {
-              id: ingredientId,
-              businessId: businessId,
-            },
-          });
-          if (!ingredient) {
-            console.warn(`Modifier ingredient not found in DB for business ${businessId}: ${ingredientId}`);
-            continue;
-          }
-
-          // Use unit conversion for modifiers as well
-          const modifierUnit = ingredient.allowedUnits && ingredient.allowedUnits[0] || ingredient.baseUnit || 'Count';
-          const baseUnit = ingredient.baseUnit || ingredient.unit || 'Count';
-          const conversionRate = ingredient.conversionRate || null;
-          // If the modifier has a unit, use it; otherwise default to ingredient's unit
-          const fromUnit = modifier.unit || modifierUnit;
-          const ingredientQtyUsed = convertToBaseUnit(
-            ingredientQuantity,
-            fromUnit,
-            baseUnit,
-            conversionRate
-          );
-
-          // Subtract the used quantity (in base unit)
-          const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
-          await ingredient.update({ quantityInStock: newQuantity });
-
-          // Only add to shopping list if quantity in stock is at or below 50% of max
-          if (newQuantity <= ingredient.max / 2) {
-            const idx = currentItemIds.indexOf(ingredient.id);
-            const needed = ingredient.max - newQuantity;
-            if (idx === -1) {
-              if (needed > 0) {
-                currentItemIds.push(ingredient.id);
-                currentQuantities.push(Math.ceil(needed));
-              }
-            } else {
-              if (currentQuantities[idx] >= ingredient.max) {
-                currentQuantities[idx] += Math.ceil(ingredientQtyUsed);
-              } else {
                 if (needed > 0) {
                   currentQuantities[idx] = Math.ceil(needed);
                 }
