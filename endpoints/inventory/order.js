@@ -46,12 +46,8 @@ async function processRecipeIngredients({ recipe, itemQuantityOrdered, skipIngre
           currentQuantities.push(Math.ceil(needed));
         }
       } else {
-        if (currentQuantities[idx] >= ingredient.max) {
-          currentQuantities[idx] += ingredientQtyUsedWhole;
-        } else {
-          if (needed > 0) {
-            currentQuantities[idx] = Math.ceil(needed);
-          }
+        if (needed > 0) {
+          currentQuantities[idx] = Math.ceil(needed);
         }
       }
     }
@@ -356,7 +352,7 @@ async function getOrder(orderId, accessToken) {
   const response = await fetch(`${process.env.SQUARE_URL}/v2/orders/${orderId}`, {
     method: 'GET',
     headers:
-     {
+    {
       'Square-Version': '2023-06-08',
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
@@ -471,7 +467,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
             continue;
           }
 
-          if(ingredientQuantity === 0) {
+          if (ingredientQuantity === 0) {
             skipIngredients.push(ingredientId);
           }
 
@@ -498,12 +494,8 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
                 currentQuantities.push(Math.ceil(needed));
               }
             } else {
-              if (currentQuantities[idx] >= ingredient.max) {
-                currentQuantities[idx] += Math.ceil(ingredientQtyUsed);
-              } else {
-                if (needed > 0) {
-                  currentQuantities[idx] = Math.ceil(needed);
-                }
+              if (needed > 0) {
+                currentQuantities[idx] = Math.ceil(needed);
               }
             }
           }
