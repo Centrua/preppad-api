@@ -36,7 +36,7 @@ async function processRecipeIngredients({ recipe, itemQuantityOrdered, skipIngre
     );
     const ingredientQtyUsedWhole = Math.ceil(ingredientQtyUsed);
     const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
-    await ingredient.update({ quantityInStock: newQuantity });
+    await ingredient.update({ quantityInStock: newQuantity < 0 ? 0 : newQuantity });
     if (newQuantity <= ingredient.max / 2) {
       const idx = currentItemIds.indexOf(ingredientId);
       const needed = ingredient.max - newQuantity;
@@ -483,7 +483,7 @@ router.post('/webhook/order-updated', express.json(), async (req, res) => {
           );
 
           const newQuantity = ingredient.quantityInStock - ingredientQtyUsed;
-          await ingredient.update({ quantityInStock: newQuantity });
+          await ingredient.update({ quantityInStock: newQuantity < 0 ? 0 : newQuantity });
 
           if (newQuantity <= ingredient.max / 2) {
             const idx = currentItemIds.indexOf(ingredient.id);
