@@ -3,7 +3,58 @@ const router = express.Router();
 const { ShoppingList, Inventory } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
 
-// GET base shopping list for a business
+async function getOrCreateShoppingList(businessId) {
+  let shoppingList = await ShoppingList.findOne({ where: { businessId } });
+  if (!shoppingList) {
+    shoppingList = await ShoppingList.create({
+      businessId,
+      itemIds: [],
+      quantities: [],
+      notes: [],
+    });
+  }
+  return shoppingList;
+}
+
+function updateShoppingListItems(shoppingList, itemId, quantity, note) {
+  const numericId = Number(itemId);
+  const updatedItemIds = [...shoppingList.itemIds];
+  const updatedQuantities = [...shoppingList.quantities];
+  const updatedNotes = shoppingList.notes ? [...shoppingList.notes] : [];
+  const existingIdx = updatedItemIds.findIndex((id) => Number(id) === numericId);
+  if (existingIdx !== -1) {
+    if (quantity !== 0 && typeof quantity === 'number') {
+      updatedQuantities[existingIdx] += quantity;
+    }
+    if (!updatedNotes[existingIdx]) {
+      updatedNotes[existingIdx] = note;
+    }
+  } else {
+    updatedItemIds.push(numericId);
+    updatedQuantities.push(quantity);
+    updatedNotes.push(note);
+  }
+  return { itemIds: updatedItemIds, quantities: updatedQuantities, notes: updatedNotes };
+}
+
+function removeItemFromShoppingList(shoppingList, itemId, quantity) {
+  const numericId = Number(itemId);
+  const updatedItemIds = [...shoppingList.itemIds];
+  const updatedQuantities = [...shoppingList.quantities];
+  const updatedNotes = shoppingList.notes ? [...shoppingList.notes] : [];
+  const existingIdx = updatedItemIds.findIndex(id => Number(id) === numericId);
+  if (existingIdx === -1) {
+    return null;
+  }
+  updatedQuantities[existingIdx] -= quantity;
+  if (updatedQuantities[existingIdx] <= 0) {
+    updatedItemIds.splice(existingIdx, 1);
+    updatedQuantities.splice(existingIdx, 1);
+    updatedNotes.splice(existingIdx, 1);
+  }
+  return { itemIds: updatedItemIds, quantities: updatedQuantities, notes: updatedNotes };
+}
+
 router.get('/', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
 
@@ -22,7 +73,6 @@ router.get('/', authenticateJWT, async (req, res) => {
 
     const { itemIds } = shoppingList;
 
-    // Fetch items from Inventory by their IDs
     const items = await Inventory.findAll({
       where: {
         id: itemIds,
@@ -30,13 +80,11 @@ router.get('/', authenticateJWT, async (req, res) => {
       attributes: ['id', 'itemName'],
     });
 
-    // Map id → itemName
     const itemNameMap = {};
     items.forEach(item => {
       itemNameMap[item.id] = item.itemName;
     });
 
-    // Preserve original order
     const itemNames = itemIds.map(id => itemNameMap[id] || 'Unknown');
 
     res.json({
@@ -49,7 +97,6 @@ router.get('/', authenticateJWT, async (req, res) => {
   }
 });
 
-// Update shopping list (PUT)
 router.put('/', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
   const { itemIds, quantities } = req.body;
@@ -59,25 +106,19 @@ router.put('/', authenticateJWT, async (req, res) => {
   }
 
   try {
-    let shoppingList = await ShoppingList.findOne({ where: { businessId } });
-
-    if (!shoppingList) {
-      // Create new list if it doesn't exist
-      shoppingList = await ShoppingList.create({
-        businessId,
-        itemIds,
-        quantities,
-      });
-    } else {
-      // Append to existing arrays
-      const updatedList = {
-        itemIds: [...shoppingList.itemIds, ...itemIds],
-        quantities: [...shoppingList.quantities, ...quantities],
-      };
-
-      await shoppingList.update(updatedList);
-    }
-
+    let shoppingList = await getOrCreateShoppingList(businessId);
+    itemIds.forEach((itemId, idx) => {
+      const quantity = quantities[idx];
+      const merged = updateShoppingListItems(shoppingList, itemId, quantity, null);
+      shoppingList.itemIds = merged.itemIds;
+      shoppingList.quantities = merged.quantities;
+      shoppingList.notes = merged.notes;
+    });
+    await shoppingList.update({
+      itemIds: shoppingList.itemIds,
+      quantities: shoppingList.quantities,
+      notes: shoppingList.notes,
+    });
     res.json({ message: 'Shopping list updated successfully', shoppingList });
   } catch (err) {
     console.error('Error updating shopping list:', err);
@@ -85,7 +126,6 @@ router.put('/', authenticateJWT, async (req, res) => {
   }
 });
 
-// Clear shopping list (PUT /clear)
 router.put('/clear', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
 
@@ -112,7 +152,6 @@ router.put('/clear', authenticateJWT, async (req, res) => {
   }
 });
 
-// PUT /shopping-list/:id - update shopping list if item's quantity is less than max
 router.post('/:id/shopping-list', authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
   const { note, quantity } = req.body;
@@ -132,45 +171,21 @@ router.post('/:id/shopping-list', authenticateJWT, async (req, res) => {
       return res.status(404).json({ error: 'Inventory item not found' });
     }
 
-    let shoppingList = await ShoppingList.findOne({ where: { businessId } });
-
-    if (!shoppingList) {
-      shoppingList = await ShoppingList.create({
-        businessId,
-        itemIds: [],
-        quantities: [],
-        notes: [],
-      });
-    }
-
-    const numericId = Number(id);
-    const existingIdx = shoppingList.itemIds.findIndex((itemId) => itemId === numericId);
-    const updatedItemIds = [...shoppingList.itemIds];
-    const updatedQuantities = [...shoppingList.quantities];
-    const updatedNotes = shoppingList.notes ? [...shoppingList.notes] : [];
-
-    if (existingIdx !== -1) {
-      if (quantity !== 0 && typeof quantity === 'number') {
-        updatedQuantities[existingIdx] += quantity;
-      }
-      if (!updatedNotes[existingIdx]) { // Only overwrite if no existing note
-        updatedNotes[existingIdx] = note;
-      }
-    } else {
-      updatedItemIds.push(numericId);
-      updatedQuantities.push(quantity);
-      updatedNotes.push(note);
-    }
-
+    let shoppingList = await getOrCreateShoppingList(businessId);
+    const merged = updateShoppingListItems(shoppingList, id, quantity, note);
     await shoppingList.update({
-      itemIds: updatedItemIds,
-      quantities: updatedQuantities,
-      notes: updatedNotes,
+      itemIds: merged.itemIds,
+      quantities: merged.quantities,
+      notes: merged.notes,
     });
-
     res.json({
       message: 'Item added to shopping list with note',
-      shoppingList,
+      shoppingList: {
+        ...shoppingList.toJSON(),
+        itemIds: merged.itemIds,
+        quantities: merged.quantities,
+        notes: merged.notes,
+      },
     });
   } catch (error) {
     console.error('Error adding item to shopping list:', error);
@@ -178,7 +193,6 @@ router.post('/:id/shopping-list', authenticateJWT, async (req, res) => {
   }
 });
 
-// DELETE a specific quantity of an item from the base shopping list
 router.delete('/:itemId', authenticateJWT, async (req, res) => {
   const { itemId } = req.params;
   const { quantity } = req.body;
@@ -193,40 +207,20 @@ router.delete('/:itemId', authenticateJWT, async (req, res) => {
   }
 
   try {
-    const shoppingList = await ShoppingList.findOne({ where: { businessId } });
-
-    if (!shoppingList) {
-      return res.status(404).json({ error: 'Shopping list not found' });
-    }
-
-    // Reduce the quantity or remove the item if quantity becomes zero or less
-    const numericId = Number(itemId);
-    const updatedItemIds = [...shoppingList.itemIds];
-    const updatedQuantities = [...shoppingList.quantities];
-    const updatedNotes = [...shoppingList.notes];
-    const existingIdx = updatedItemIds.findIndex(itemId => Number(itemId) === numericId);
-
-    if (existingIdx === -1) {
+    let shoppingList = await getOrCreateShoppingList(businessId);
+    const merged = removeItemFromShoppingList(shoppingList, itemId, quantity);
+    if (!merged) {
       return res.status(404).json({ error: 'Item not found in shopping list' });
     }
-
-    updatedQuantities[existingIdx] -= quantity;
-    if (updatedQuantities[existingIdx] <= 0) {
-      updatedItemIds.splice(existingIdx, 1);
-      updatedQuantities.splice(existingIdx, 1);
-      updatedNotes.splice(existingIdx, 1);
-    }
-
     await shoppingList.update({
-      itemIds: updatedItemIds,
-      quantities: updatedQuantities,
-      notes: updatedNotes,
+      itemIds: merged.itemIds,
+      quantities: merged.quantities,
+      notes: merged.notes,
     });
-
     res.json({
       message: 'Quantity updated or item removed from shopping list',
-      items: updatedItemIds,
-      quantities: updatedQuantities,
+      items: merged.itemIds,
+      quantities: merged.quantities,
     });
   } catch (error) {
     console.error('Error updating shopping list:', error);
