@@ -4,6 +4,34 @@ const { Recipe, PendingPurchase, ShoppingList } = require('../../models');
 const { authenticateJWT } = require('../../middleware/authenticate');
 const { Op, fn, col, Sequelize } = require('sequelize');
 
+async function addItemsToShoppingList(businessId, itemIds, quantities) {
+  let shoppingList = await ShoppingList.findOne({ where: { businessId } });
+  if (!shoppingList) {
+    shoppingList = await ShoppingList.create({
+      businessId,
+      itemIds: [...itemIds],
+      quantities: [...quantities],
+    });
+    return shoppingList;
+  } else {
+    // Update existing quantities or add new ones
+    const updatedItemIds = [...shoppingList.itemIds];
+    const updatedQuantities = [...shoppingList.quantities];
+    itemIds.forEach((itemId, idx) => {
+      const qty = quantities[idx];
+      const existingIdx = updatedItemIds.findIndex(id => id === itemId || id === parseInt(itemId, 10));
+      if (existingIdx !== -1) {
+        updatedQuantities[existingIdx] += qty;
+      } else {
+        updatedItemIds.push(itemId);
+        updatedQuantities.push(qty);
+      }
+    });
+    await shoppingList.update({ itemIds: updatedItemIds, quantities: updatedQuantities });
+    return shoppingList;
+  }
+}
+
 router.get('/', authenticateJWT, async (req, res) => {
   try {
     const businessId = req.user.businessId;
@@ -143,31 +171,7 @@ router.post('/:id/diff-to-shopping-list', authenticateJWT, async (req, res) => {
     // Update the pending purchase with the confirmed quantities
     await purchase.update({ quantities: confirmedQuantities });
 
-    // Use the ShoppingList PUT endpoint logic to add/update items
-    let shoppingList = await ShoppingList.findOne({ where: { businessId } });
-    if (!shoppingList) {
-      shoppingList = await ShoppingList.create({
-        businessId,
-        itemIds: diffItemIds,
-        quantities: diffQuantities,
-      });
-    } else {
-      // Update existing quantities or add new ones
-      const updatedItemIds = [...shoppingList.itemIds];
-      const updatedQuantities = [...shoppingList.quantities];
-      diffItemIds.forEach((itemId, idx) => {
-        const diffQty = diffQuantities[idx];
-        const existingIdx = updatedItemIds.indexOf(itemId);
-        if (existingIdx !== -1) {
-          updatedQuantities[existingIdx] += diffQty;
-        } else {
-          updatedItemIds.push(itemId);
-          updatedQuantities.push(diffQty);
-        }
-      });
-      await shoppingList.update({ itemIds: updatedItemIds, quantities: updatedQuantities });
-    }
-
+    await addItemsToShoppingList(businessId, diffItemIds, diffQuantities);
     res.json({ message: 'Differences added to shopping list', itemIds: diffItemIds, quantities: diffQuantities });
   } catch (error) {
     console.error('Error diffing and updating shopping list:', error);
@@ -297,38 +301,15 @@ router.post('/add-to-shopping-list', authenticateJWT, async (req, res) => {
       return acc;
     }, {});
 
-    // Fetch the shopping list for the business
-    const shoppingList = await ShoppingList.findOne({ where: { businessId } });
-
-    if (!shoppingList) {
-      return res.status(404).json({ error: 'Shopping list not found' });
-    }
-
-    const updatedItemIds = [...shoppingList.itemIds];
-    const updatedQuantities = [...shoppingList.quantities];
-
-    // Add items to the shopping list
-    Object.entries(itemsToAdd).forEach(([itemId, quantity]) => {
-      const existingIdx = updatedItemIds.findIndex(id => id === parseInt(itemId, 10));
-      if (existingIdx !== -1) {
-        updatedQuantities[existingIdx] += quantity;
-      } else {
-        updatedItemIds.push(parseInt(itemId, 10));
-        updatedQuantities.push(quantity);
-      }
-    });
-
-    // Update the shopping list in the database
-    await shoppingList.update({
-      itemIds: updatedItemIds,
-      quantities: updatedQuantities,
-    });
-
+    // Convert itemsToAdd object to arrays
+    const addItemIds = Object.keys(itemsToAdd).map(id => parseInt(id, 10));
+    const addQuantities = addItemIds.map(id => itemsToAdd[id]);
+    const shoppingList = await addItemsToShoppingList(businessId, addItemIds, addQuantities);
     res.json({
       message: 'Items from the pending purchase added to shopping list',
       shoppingList: {
-        itemIds: updatedItemIds,
-        quantities: updatedQuantities,
+        itemIds: shoppingList.itemIds,
+        quantities: shoppingList.quantities,
       },
     });
   } catch (error) {
