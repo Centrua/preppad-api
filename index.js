@@ -23,6 +23,7 @@ const { recipes } = require('./endpoints/recipes/recipes');
 const { pendingPurchases } = require('./endpoints/pending-purchases/pending-purchases');
 const { order } = require('./endpoints/inventory/order');
 const { ingredients } = require('./endpoints/ingredients/ingredients');
+const { messaging } = require('./endpoints/messaging/messaging');
 const { ProcessedEvent } = require('./models');
 
 app.use('/oauth', square);
@@ -33,6 +34,7 @@ app.use('/shopping-list', shoppingList);
 app.use('/recipes', recipes);
 app.use('/pending-purchase', pendingPurchases);
 app.use('/ingredients', ingredients);
+app.use('/messaging', messaging);
 
 async function cleanUpExpiredProcessedEvents() {
   try {
